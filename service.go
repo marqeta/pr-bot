@@ -17,9 +17,9 @@ import (
 	"github.com/go-chi/httplog"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.marqeta.com/ci/pr-bot/metrics"
-	"github.marqeta.com/ci/pr-bot/opa/evaluation"
-	"github.marqeta.com/ci/pr-bot/secrets"
+	"github.com/marqeta/pr-bot/metrics"
+	"github.com/marqeta/pr-bot/opa/evaluation"
+	"github.com/marqeta/pr-bot/secrets"
 )
 
 type Service struct {

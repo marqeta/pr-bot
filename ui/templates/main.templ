@@ -1,0 +1,16 @@
+package templates
+
+// <link href="/ui/static/css/output.css" rel="stylesheet"/>
+templ Html(title string, bodyContent templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en" data-theme="dracula">
+		<head>
+			<link href="/ui/static/css/output.css" rel="stylesheet"/>
+			<script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.4/dist/lottie-player.js" integrity="sha384-ZS8J2a7RVbRR0ssaAbYOPXkY5xPg/5ubjOe61wQ6qPB5HabaRBWKzfVGDwLXC+x9" crossorigin="anonymous" ></script>
+			<title>{ title }</title>
+		</head>
+		<body>
+			@bodyContent
+		</body>
+	</html>
+}

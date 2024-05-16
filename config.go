@@ -55,7 +55,7 @@ type Config struct {
 	} `yaml:"Reviewer" env-prefix:"REVIEWER_"`
 	GHE struct {
 		ServiceAccount string `yaml:"ServiceAccount" env:"SERVICE_ACCOUNT"`
-		Hostname       string `yaml:"Hostname" env:"HOSTNAME" env-default:"github.marqeta.com"`
+		Hostname       string `yaml:"Hostname" env:"HOSTNAME" env-default:"github.com"`
 	} `yaml:"GHE" env-prefix:"GHE_"`
 	ConfigStore struct {
 		Table   string        `yaml:"Table" env:"TABLE"`
