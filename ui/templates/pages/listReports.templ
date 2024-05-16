@@ -1,0 +1,79 @@
+package pages
+
+import "github.com/marqeta/pr-bot/opa/evaluation"
+import "github.com/marqeta/pr-bot/ui/templates/components"
+import "strconv"
+import "time"
+
+templ ListReportsPage(nav, metadata, table templ.Component) {
+	@nav
+	@metadata
+	<div class={ "divider", "font-bold", "text-2xl" }>Events</div>
+	@table
+}
+
+templ PRDetails(report evaluation.ReportMetadata) {
+	<!-- PR details -->
+	<div
+		class="grid grid-cols-1 md:grid-cols-3 gap-4 place-content-evenly justify-items-center md:justify-items-start"
+	>
+		<div class="md:col-span-2">
+			<p class="text-xl font-bold leading-7 pb-2">Title</p>
+			<p class="text-base leading-6">{ report.Title }</p>
+		</div>
+		@components.DL("Author", report.Author)
+		@components.DL("PR", report.PR)
+	</div>
+}
+
+templ EventsTable(reports []evaluation.ReportMetadata) {
+	<div class="overflow-x-auto">
+		<table class="table">
+			<!-- head -->
+			<thead>
+				<tr>
+					<th></th>
+					<th>Event</th>
+					<th>Action</th>
+					<th>DeliveryID</th>
+					<th>Created At</th>
+					<th></th>
+					<th>Evaluation Outcome</th>
+				</tr>
+			</thead>
+			<tbody>
+				<!-- row 1 -->
+				for i, report := range reports {
+					<tr>
+						<th>{ strconv.Itoa(i + 1) }</th>
+						<td>{ report.Event }</td>
+						<td>{ report.Action }</td>
+						<td>
+							<a
+								class="btn btn-outline"
+								href={ templ.URL("/ui/eval/" + report.PR + "/events/" + report.DeliveryID) }
+								target="_blank"
+							>
+								{ report.DeliveryID }
+								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"></path>
+								</svg>
+							</a>
+						</td>
+						<td>{ time.Unix(report.CreatedAt,0).Local().String() }</td>
+						<td class={ "font-bold", components.GetTextColor(report.Outcome.Result, report.Outcome.Err) }>
+							<div>
+								@components.GetIcon(report.Outcome.Result, report.Outcome.Err)
+							</div>
+						</td>
+						<td class={ "font-bold", components.GetTextColor(report.Outcome.Result, report.Outcome.Err) }>
+							<div>
+								{ components.GetReviewType(report.Outcome.Result, report.Outcome.Err) }
+							</div>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}

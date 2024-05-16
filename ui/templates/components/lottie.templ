@@ -1,0 +1,25 @@
+package components
+
+import "github.com/marqeta/pr-bot/opa/types"
+
+templ Lottie(result types.Result, err error) {
+	if err != nil {
+		<lottie-player autoplay loop count="0" intermission="500" src="/ui/static/images/error.json"></lottie-player>
+	} else if result.Review.Type == types.Approve {
+		<lottie-player autoplay loop count="5" intermission="500" src="/ui/static/images/approve.json"></lottie-player>
+	} else if result.Review.Type == types.RequestChanges {
+		<lottie-player autoplay loop count="0" intermission="500" src="/ui/static/images/request_changes.json"></lottie-player>
+	} else if result.Review.Type == types.Comment {
+		<lottie-player autoplay loop count="0" intermission="1000" src="/ui/static/images/comment.json"></lottie-player>
+	} else {
+		<lottie-player autoplay loop count="0" intermission="500" src="/ui/static/images/skip.json"></lottie-player>
+	}
+}
+
+templ LottieNotFound() {
+	<lottie-player autoplay loop count="0" intermission="500" src="/ui/static/images/404.json"></lottie-player>
+}
+
+templ LottieAutomation() {
+	<lottie-player autoplay loop count="0" intermission="500" src="/ui/static/images/automation.json"></lottie-player>
+}

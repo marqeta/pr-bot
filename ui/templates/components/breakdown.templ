@@ -1,0 +1,58 @@
+package components
+
+import (
+	"github.com/marqeta/pr-bot/opa/evaluation"
+	"github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
+	"encoding/json"
+)
+
+func SyntaxHighlight(result interface{}) string {
+
+	l := lexers.Get("json")
+
+	f := html.New(html.WithClasses(true), html.WithLineNumbers(true), html.ClassPrefix("c-"))
+
+	s := styles.Get("dracula")
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err.Error()
+	}
+	it, err := l.Tokenise(nil, string(b))
+	if err != nil {
+		return err.Error()
+	}
+	var buf bytes.Buffer
+	err = f.Format(&buf, s, it)
+	if err != nil {
+		return err.Error()
+	}
+	return buf.String()
+}
+
+templ Breakdown(module string, node evaluation.Result, beforeLine, afterLine bool) {
+	<li>
+		if beforeLine {
+			<hr class="bg-neutral-content"/>
+		}
+		<div class="timeline-start timeline-box">{ module }</div>
+		<div class={ "timeline-middle", GetTextColor(node.Result, node.Err) }>
+			@GetIcon(node.Result, node.Err)
+		</div>
+		<div class="timeline-end timeline-box collapse collapse-plus bg-base-200">
+			<input type="radio" name="my-accordion-3" checked="checked"/>
+			<div class={ "collapse-title", "font-medium", GetTextColor(node.Result, node.Err) }>
+				{ GetReviewType(node.Result, node.Err) }
+			</div>
+			<div class="collapse-content">
+				<div class="mockup-code">
+					@templ.Raw(SyntaxHighlight(node))
+				</div>
+			</div>
+		</div>
+		if afterLine {
+			<hr class="bg-neutral-content"/>
+		}
+	</li>
+}

@@ -1,0 +1,29 @@
+ServiceName: pr-bot
+Env: local
+Server:
+  Host: localhost
+  Port: 9090
+GHE:
+  Hostname: github-qa.marqeta.com
+ConfigStore:
+  Table: pr-bot-dev-config
+  Refresh: 5m
+Throttler:
+  Table: "pr-bot-dev-throttle"
+  PartitionKey: "key"
+  SortKey: "time"
+  TTLFieldName: "ttl"
+OPA:
+  Bundles:
+    Root: "/Users/pkrishnan/ws/pr-bot/bundles"
+    Filename: "pr-bot-policy-dev.tar.gz"
+    ECR:
+      Registry: "986695000930.dkr.ecr.us-east-1.amazonaws.com"
+      Repo: "ci-staging/pr-bot-policies-dev/artifacts/opa-policy-bundle"
+      Tag: "1.0-84-63ae61b3671851da6391ae461d209245f87ba56d"
+  EvaluationReport:
+    TTL: 336h
+    TableName: "pr-bot-dev-evaluation-history"
+Reviewer:
+  Locker:
+    TableName: "pr-bot-dev-reviews-lock-table"
