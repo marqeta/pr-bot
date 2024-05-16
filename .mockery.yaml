@@ -1,0 +1,4 @@
+inpackage: True
+with-expecter: True
+keeptree: False
+case: underscore
