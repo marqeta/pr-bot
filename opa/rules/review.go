@@ -63,28 +63,9 @@ func (r *Review) Evaluate(
 		return types.Review{}, fmt.Errorf("%w rule: review.body, expected: string, got: %T", ErrInvalidReturnType, bodyDecision.Result)
 	}
 
-	optPref := sdk.DecisionOptions{
-		Path:       r.client.Path(module, r.RuleName) + "/merge_preference",
-		Input:      input,
-		DecisionID: r.client.DecisionID(ctx),
-	}
-	prefDecision, err := r.client.Decision(ctx, optPref)
-	if err != nil {
-		return types.Review{}, err
-	}
-	prefStr, ok := prefDecision.Result.(string)
-	if !ok {
-		return types.Review{}, fmt.Errorf("%w rule: review.merge_preference, expected: string, got: %T", types.ErrInvalidMergePreference, prefDecision.Result)
-	}
-	pref, err := types.ParseMergeMethod(prefStr)
-	if err != nil {
-		return types.Review{}, err
-	}
-
 	return types.Review{
-		Type:            reviewType,
-		Body:            body,
-		MergePreference: pref,
+		Type: reviewType,
+		Body: body,
 	}, nil
 }
 
