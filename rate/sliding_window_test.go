@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/configstore"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/rate"
+	"github.com/stretchr/testify/assert"
 
 	lim "github.com/mennanov/limiters"
 )

@@ -11,8 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/go-github/v50/github"
-	"github.com/stretchr/testify/assert"
 	prbot "github.com/marqeta/pr-bot"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRenderError(t *testing.T) {

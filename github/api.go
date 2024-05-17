@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/google/go-github/v50/github"
-	"github.com/shurcooL/githubv4"
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/id"
+	"github.com/shurcooL/githubv4"
 )
 
 const (

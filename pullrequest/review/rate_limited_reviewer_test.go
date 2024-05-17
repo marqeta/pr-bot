@@ -5,13 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	lim "github.com/mennanov/limiters"
-	"github.com/shurcooL/githubv4"
 	prbot "github.com/marqeta/pr-bot"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/pullrequest/review"
 	"github.com/marqeta/pr-bot/rate"
+	lim "github.com/mennanov/limiters"
+	"github.com/shurcooL/githubv4"
 )
 
 func Test_rateLimitedReviewer_Approve(t *testing.T) {

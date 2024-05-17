@@ -8,11 +8,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/google/go-github/v50/github"
-	"github.com/stretchr/testify/assert"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/opa/evaluation"
 	"github.com/marqeta/pr-bot/opa/input"
 	"github.com/marqeta/pr-bot/opa/types"
+	"github.com/stretchr/testify/assert"
 )
 
 func Test_reportBuilder(t *testing.T) {

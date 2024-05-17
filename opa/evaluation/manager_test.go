@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/opa/evaluation"
+	"github.com/stretchr/testify/assert"
 )
 
 func Test_GetDeliveryID(t *testing.T) {

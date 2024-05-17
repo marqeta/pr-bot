@@ -6,11 +6,11 @@ import (
 	"strings"
 
 	"github.com/go-chi/httplog"
-	"github.com/shurcooL/githubv4"
 	prbot "github.com/marqeta/pr-bot"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
+	"github.com/shurcooL/githubv4"
 )
 
 const (

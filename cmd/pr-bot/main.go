@@ -13,7 +13,6 @@ import (
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
 
-	lim "github.com/mennanov/limiters"
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/configstore"
 	gh "github.com/marqeta/pr-bot/github"
@@ -29,6 +28,7 @@ import (
 	"github.com/marqeta/pr-bot/secrets"
 	"github.com/marqeta/pr-bot/ui"
 	"github.com/marqeta/pr-bot/webhook"
+	lim "github.com/mennanov/limiters"
 )
 
 const (

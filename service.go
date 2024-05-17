@@ -15,11 +15,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/opa/evaluation"
 	"github.com/marqeta/pr-bot/secrets"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type Service struct {

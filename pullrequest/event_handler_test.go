@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/google/go-github/v50/github"
-	"github.com/shurcooL/githubv4"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/opa"
@@ -13,6 +12,7 @@ import (
 	"github.com/marqeta/pr-bot/opa/types"
 	"github.com/marqeta/pr-bot/pullrequest"
 	"github.com/marqeta/pr-bot/pullrequest/review"
+	"github.com/shurcooL/githubv4"
 )
 
 func Test_eventHandlerV2_EvalAndReview(t *testing.T) {

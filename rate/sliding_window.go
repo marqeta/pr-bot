@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	lim "github.com/mennanov/limiters"
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/configstore"
 	"github.com/marqeta/pr-bot/id"
+	lim "github.com/mennanov/limiters"
 )
 
 type swLimiter struct {

@@ -2,11 +2,11 @@ package webhook
 
 import (
 	"github.com/go-chi/chi/v5"
-	"github.com/slok/go-http-metrics/middleware"
-	"github.com/slok/go-http-metrics/middleware/std"
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/pullrequest"
+	"github.com/slok/go-http-metrics/middleware"
+	"github.com/slok/go-http-metrics/middleware/std"
 )
 
 type endpoint struct {

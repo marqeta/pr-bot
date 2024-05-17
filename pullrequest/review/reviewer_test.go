@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/shurcooL/githubv4"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/pullrequest/review"
+	"github.com/shurcooL/githubv4"
 )
 
 func Test_reviewer_Approve(t *testing.T) {

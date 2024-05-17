@@ -9,10 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/stretchr/testify/assert"
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/opa/evaluation"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestStaticEmbed(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/marqeta/pr-bot/rate"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLimiterConfig_Update(t *testing.T) {

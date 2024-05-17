@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/stretchr/testify/assert"
 	"github.com/marqeta/pr-bot/configstore"
 	"github.com/marqeta/pr-bot/metrics"
+	"github.com/stretchr/testify/assert"
 )
 
 type exampleConfig struct {
