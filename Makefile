@@ -1,3 +1,6 @@
+.PHONY: ci
+ci: fmt vet lint build test
+
 .PHONY: clean
 clean:
 	rm bin/* || true
@@ -15,7 +18,7 @@ test:
 	go test --mod=vendor -v -coverpkg=./... -coverprofile=coverage.out ./...
 
 .PHONY: build
-build: clean fmt vet lint
+build: clean
 	go build --mod=vendor -o ./bin/pr-bot cmd/pr-bot/main.go
 
 .PHONY: fmt
