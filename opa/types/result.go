@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/shurcooL/githubv4"
 )
 
 type ReviewType uint8
 
 var ErrInvalidReviewType = fmt.Errorf("invalid review type")
-var ErrInvalidMergePreference = fmt.Errorf("invalid merge preference")
 
 const (
 	// enum values are in the order of the precedence
@@ -85,24 +82,9 @@ func (r *ReviewType) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-func ParseMergeMethod(s string) (githubv4.PullRequestMergeMethod, error) {
-	s = strings.ToUpper(strings.TrimSpace(s))
-	if s == string(githubv4.PullRequestMergeMethodMerge) {
-		return githubv4.PullRequestMergeMethodMerge, nil
-	}
-	if s == string(githubv4.PullRequestMergeMethodRebase) {
-		return githubv4.PullRequestMergeMethodRebase, nil
-	}
-	if s == string(githubv4.PullRequestMergeMethodSquash) {
-		return githubv4.PullRequestMergeMethodSquash, nil
-	}
-	return "", fmt.Errorf("%w: %v", ErrInvalidMergePreference, s)
-}
-
 type Review struct {
-	Type            ReviewType                      `json:"type"`
-	Body            string                          `json:"body"`
-	MergePreference githubv4.PullRequestMergeMethod `json:"merge_preference"`
+	Type ReviewType `json:"type"`
+	Body string     `json:"body"`
 }
 
 type Result struct {
