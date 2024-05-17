@@ -5,8 +5,8 @@ package github
 import (
 	context "context"
 
-	githubv4 "github.com/shurcooL/githubv4"
 	id "github.com/marqeta/pr-bot/id"
+	githubv4 "github.com/shurcooL/githubv4"
 
 	mock "github.com/stretchr/testify/mock"
 

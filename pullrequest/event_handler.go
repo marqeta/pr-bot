@@ -5,13 +5,13 @@ import (
 
 	"github.com/go-chi/httplog"
 	"github.com/google/go-github/v50/github"
-	"github.com/shurcooL/githubv4"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/opa"
 	"github.com/marqeta/pr-bot/opa/input"
 	"github.com/marqeta/pr-bot/opa/types"
 	"github.com/marqeta/pr-bot/pullrequest/review"
+	"github.com/shurcooL/githubv4"
 )
 
 //go:generate mockery --name EventHandler --testonly

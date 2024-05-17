@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/rs/zerolog/log"
 	"github.com/marqeta/pr-bot/metrics"
+	"github.com/rs/zerolog/log"
 
 	"github.com/jonboulle/clockwork"
 )

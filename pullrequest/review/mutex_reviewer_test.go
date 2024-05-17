@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"cirello.io/dynamolock/v2"
-	"github.com/stretchr/testify/mock"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/pullrequest/review"
+	"github.com/stretchr/testify/mock"
 )
 
 func Test_mutex_reviewer_Approve(t *testing.T) {

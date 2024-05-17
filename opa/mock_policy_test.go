@@ -5,8 +5,8 @@ package opa
 import (
 	context "context"
 
-	mock "github.com/stretchr/testify/mock"
 	input "github.com/marqeta/pr-bot/opa/input"
+	mock "github.com/stretchr/testify/mock"
 
 	types "github.com/marqeta/pr-bot/opa/types"
 )

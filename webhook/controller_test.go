@@ -11,12 +11,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/go-github/v50/github"
-	"github.com/stretchr/testify/assert"
-	mock "github.com/stretchr/testify/mock"
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/pullrequest"
 	"github.com/marqeta/pr-bot/webhook"
+	"github.com/stretchr/testify/assert"
+	mock "github.com/stretchr/testify/mock"
 )
 
 var errRandom = errors.New("random error")

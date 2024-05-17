@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/marqeta/pr-bot/configstore"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/pullrequest"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRepoFilterCfg_Update(t *testing.T) {
