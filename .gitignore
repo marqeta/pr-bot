@@ -29,3 +29,9 @@ go.work
 
 # >25 MB files are rejected by GHE; skip them from vendored directoty
 *libwasmtime.a
+
+# skip policy bundle download dir for local runs
+bundles/*
+
+# skip emacs org mode files
+*.org
