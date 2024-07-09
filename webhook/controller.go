@@ -8,7 +8,8 @@ import (
 	"github.com/go-chi/httplog"
 	"github.com/go-chi/render"
 	"github.com/google/go-github/v50/github"
-	prbot "github.com/marqeta/pr-bot"
+
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/opa/evaluation"
 )
 
@@ -32,8 +33,8 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	payload, err := c.parser.ValidatePayload(r, []byte(c.webhookSecrect))
 	if err != nil {
 		oplog.Err(err).Msg("could not validate webhook payload")
-		prbot.RenderError(w, r,
-			prbot.InValidRequestError(ctx, "could not validate webhook payload", err))
+		pe.RenderError(w, r,
+			pe.InValidRequestError(ctx, "could not validate webhook payload", err))
 		return
 	}
 
@@ -41,8 +42,8 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	event, err := c.parser.ParseWebHook(github.WebHookType(r), payload)
 	if err != nil {
 		oplog.Err(err).Msg("could not parse webhook")
-		prbot.RenderError(w, r,
-			prbot.InValidRequestError(ctx, "could not parse webhook", err))
+		pe.RenderError(w, r,
+			pe.InValidRequestError(ctx, "could not parse webhook", err))
 		return
 	}
 
@@ -65,7 +66,7 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		oplog.Err(err).Msg("Error Handling Event")
-		prbot.RenderError(w, r, err)
+		pe.RenderError(w, r, err)
 	} else {
 		_ = render.Render(w, r, &EventResponse{
 			StatusCode: http.StatusAccepted,

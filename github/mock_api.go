@@ -5,12 +5,12 @@ package github
 import (
 	context "context"
 
-	id "github.com/marqeta/pr-bot/id"
+	errors "github.com/marqeta/pr-bot/errors"
 	githubv4 "github.com/shurcooL/githubv4"
 
-	mock "github.com/stretchr/testify/mock"
+	id "github.com/marqeta/pr-bot/id"
 
-	prbot "github.com/marqeta/pr-bot"
+	mock "github.com/stretchr/testify/mock"
 
 	v50github "github.com/google/go-github/v50/github"
 )
@@ -218,11 +218,11 @@ func (_c *MockAPI_IssueComment_Call) RunAndReturn(run func(context.Context, id.P
 }
 
 // IssueCommentForError provides a mock function with given fields: ctx, _a1, err
-func (_m *MockAPI) IssueCommentForError(ctx context.Context, _a1 id.PR, err prbot.APIError) error {
+func (_m *MockAPI) IssueCommentForError(ctx context.Context, _a1 id.PR, err errors.APIError) error {
 	ret := _m.Called(ctx, _a1, err)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, id.PR, prbot.APIError) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR, errors.APIError) error); ok {
 		r0 = rf(ctx, _a1, err)
 	} else {
 		r0 = ret.Error(0)
@@ -239,14 +239,14 @@ type MockAPI_IssueCommentForError_Call struct {
 // IssueCommentForError is a helper method to define mock.On call
 //   - ctx context.Context
 //   - _a1 id.PR
-//   - err prbot.APIError
+//   - err errors.APIError
 func (_e *MockAPI_Expecter) IssueCommentForError(ctx interface{}, _a1 interface{}, err interface{}) *MockAPI_IssueCommentForError_Call {
 	return &MockAPI_IssueCommentForError_Call{Call: _e.mock.On("IssueCommentForError", ctx, _a1, err)}
 }
 
-func (_c *MockAPI_IssueCommentForError_Call) Run(run func(ctx context.Context, _a1 id.PR, err prbot.APIError)) *MockAPI_IssueCommentForError_Call {
+func (_c *MockAPI_IssueCommentForError_Call) Run(run func(ctx context.Context, _a1 id.PR, err errors.APIError)) *MockAPI_IssueCommentForError_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(id.PR), args[2].(prbot.APIError))
+		run(args[0].(context.Context), args[1].(id.PR), args[2].(errors.APIError))
 	})
 	return _c
 }
@@ -256,7 +256,7 @@ func (_c *MockAPI_IssueCommentForError_Call) Return(_a0 error) *MockAPI_IssueCom
 	return _c
 }
 
-func (_c *MockAPI_IssueCommentForError_Call) RunAndReturn(run func(context.Context, id.PR, prbot.APIError) error) *MockAPI_IssueCommentForError_Call {
+func (_c *MockAPI_IssueCommentForError_Call) RunAndReturn(run func(context.Context, id.PR, errors.APIError) error) *MockAPI_IssueCommentForError_Call {
 	_c.Call.Return(run)
 	return _c
 }

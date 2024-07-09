@@ -1,4 +1,4 @@
-package prbot
+package errors
 
 import (
 	"context"
@@ -26,6 +26,14 @@ func (e APIError) Error() string {
 func (e APIError) Render(_ http.ResponseWriter, r *http.Request) error {
 	render.Status(r, e.StatusCode)
 	return nil
+}
+
+func (e APIError) IsUserError() bool {
+	return e.StatusCode >= 400 && e.StatusCode < 500
+}
+
+func (e APIError) IsServiceError() bool {
+	return !e.IsUserError()
 }
 
 func RenderError(w http.ResponseWriter, r *http.Request, err error) {

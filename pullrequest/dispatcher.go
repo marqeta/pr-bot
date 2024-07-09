@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/go-chi/httplog"
 	"github.com/google/go-github/v50/github"
-	prbot "github.com/marqeta/pr-bot"
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
 )
@@ -126,5 +126,5 @@ func (d *dispatcher) Dispatch(ctx context.Context, _ string, eventName string, e
 }
 
 func parseError(ctx context.Context, err error) error {
-	return prbot.InValidRequestError(ctx, "error parsing webhook event", err)
+	return pe.InValidRequestError(ctx, "error parsing webhook event", err)
 }

@@ -8,7 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/google/go-github/v50/github"
-	prbot "github.com/marqeta/pr-bot"
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/pullrequest"
@@ -220,7 +220,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(_ id.PR, _ *github.PullRequestEvent,
 				_ *pullrequest.MockEventFilter, _ *pullrequest.MockEventHandler) {
 			},
-			wantErr: prbot.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrMismatchedEvent),
+			wantErr: pe.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrMismatchedEvent),
 		},
 		{
 			name: "Error when Event action is nil",
@@ -232,7 +232,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(_ id.PR, _ *github.PullRequestEvent,
 				_ *pullrequest.MockEventFilter, _ *pullrequest.MockEventHandler) {
 			},
-			wantErr: prbot.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrEventActionNotFound),
+			wantErr: pe.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrEventActionNotFound),
 		},
 		{
 			name: "Error when Event PR is nil",
@@ -247,7 +247,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(_ id.PR, _ *github.PullRequestEvent,
 				_ *pullrequest.MockEventFilter, _ *pullrequest.MockEventHandler) {
 			},
-			wantErr: prbot.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrPRNotFound),
+			wantErr: pe.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrPRNotFound),
 		},
 		{
 			name: "Should return error from event handler",

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/configstore"
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/rate"
 	"github.com/stretchr/testify/assert"
@@ -51,7 +51,7 @@ func Test_swLimiter_ShouldThrottle(t *testing.T) {
 			args: args{
 				id: ID("owner1", "repo1", "author1"),
 			},
-			wantErr: prbot.TooManyRequestError(ctx,
+			wantErr: pe.TooManyRequestError(ctx,
 				fmt.Sprintf("%v throttled request for key %v, try again in %v",
 					"Mock", "Repo/owner1/repo1", 5*time.Second),
 				lim.ErrLimitExhausted),
@@ -73,7 +73,7 @@ func Test_swLimiter_ShouldThrottle(t *testing.T) {
 			args: args{
 				id: ID("owner1", "repo1", "author1"),
 			},
-			wantErr: prbot.TooManyRequestError(ctx,
+			wantErr: pe.TooManyRequestError(ctx,
 				fmt.Sprintf("%v throttled request for key %v, try again in %v",
 					"Mock", "Org/owner1", 5*time.Second),
 				lim.ErrLimitExhausted),
@@ -95,7 +95,7 @@ func Test_swLimiter_ShouldThrottle(t *testing.T) {
 			args: args{
 				id: ID("owner1", "repo1", "author1"),
 			},
-			wantErr: prbot.TooManyRequestError(ctx,
+			wantErr: pe.TooManyRequestError(ctx,
 				fmt.Sprintf("%v throttled request for key %v, try again in %v",
 					"Mock", "Author/author1", 5*time.Second),
 				lim.ErrLimitExhausted),

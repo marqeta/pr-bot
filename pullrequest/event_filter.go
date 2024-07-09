@@ -5,8 +5,8 @@ import (
 	"regexp"
 
 	"github.com/go-chi/httplog"
-	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/configstore"
+	pe "github.com/marqeta/pr-bot/errors"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 )
@@ -106,7 +106,7 @@ func (f *repoFilter) ShouldHandle(ctx context.Context, id id.PR) (bool, error) {
 func (f *repoFilter) hasIgnoreTopic(ctx context.Context, id id.PR, cfg *RepoFilterCfg) (bool, error) {
 	topics, err := f.dao.ListAllTopics(ctx, id)
 	if err != nil {
-		return true, prbot.ServiceFault(ctx, "error listing topics on repo", err)
+		return true, pe.ServiceFault(ctx, "error listing topics on repo", err)
 	}
 	for _, topic := range topics {
 		if cfg.IgnoreTopicsMap[topic] {

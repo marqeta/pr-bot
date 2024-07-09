@@ -29,7 +29,7 @@ func (d *DedupReviewer) Approve(ctx context.Context, id id.PR, body string, opts
 		return err
 	}
 	if d.checkForReview(reviews, types.Approve) {
-		oplog.Info().Msgf("PR already has a review of type %v or higher", types.Approve)
+		oplog.Info().Msgf("PR already has a review of type %v or higher %v", types.Approve, id.URL)
 		return nil
 	}
 	return d.delegate.Approve(ctx, id, body, opts)
@@ -44,7 +44,7 @@ func (d *DedupReviewer) Comment(ctx context.Context, id id.PR, body string) erro
 		return err
 	}
 	if d.checkForReview(reviews, types.Comment) {
-		oplog.Info().Msgf("PR already has a review of type %v or higher", types.Comment)
+		oplog.Info().Msgf("PR already has a review of type %v or higher %v", types.Comment, id.URL)
 		return nil
 	}
 	return d.delegate.Comment(ctx, id, body)
@@ -59,7 +59,7 @@ func (d *DedupReviewer) RequestChanges(ctx context.Context, id id.PR, body strin
 		return err
 	}
 	if d.checkForReview(reviews, types.RequestChanges) {
-		oplog.Info().Msgf("PR already has a review of type %v or higher", types.RequestChanges)
+		oplog.Info().Msgf("PR already has a review of type %v or higher %v", types.RequestChanges, id.URL)
 		return nil
 	}
 	return d.delegate.RequestChanges(ctx, id, body)

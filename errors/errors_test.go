@@ -1,4 +1,4 @@
-package prbot_test
+package errors_test
 
 import (
 	"bytes"
@@ -11,15 +11,17 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/go-github/v50/github"
-	prbot "github.com/marqeta/pr-bot"
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestRenderError(t *testing.T) {
+	ctx := context.TODO()
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, "requestID")
 
 	//nolint:goerr113
 	errRandom := errors.New("random")
-	apiError := prbot.APIError{
+	apiError := pe.APIError{
 		RequestID:  "requestID",
 		ErrorCode:  "code",
 		Message:    "msg",
@@ -29,12 +31,12 @@ func TestRenderError(t *testing.T) {
 	tests := []struct {
 		name    string
 		err     error
-		wantErr prbot.APIError
+		wantErr pe.APIError
 	}{
 		{
 			name: "Should render APIError",
 			err:  apiError,
-			wantErr: prbot.APIError{
+			wantErr: pe.APIError{
 				RequestID:  "requestID",
 				ErrorCode:  "code",
 				Message:    "msg",
@@ -43,9 +45,53 @@ func TestRenderError(t *testing.T) {
 			},
 		},
 		{
+			name: "Should render TooManyRequestError",
+			err:  pe.TooManyRequestError(ctx, "random", errRandom),
+			wantErr: pe.APIError{
+				RequestID:  "requestID",
+				ErrorCode:  "TooManyRequestsError",
+				Message:    "random",
+				StatusCode: http.StatusTooManyRequests,
+				ErrorText:  errRandom.Error(),
+			},
+		},
+		{
+			name: "Should render InValidRequestError",
+			err:  pe.InValidRequestError(ctx, "random", errRandom),
+			wantErr: pe.APIError{
+				RequestID:  "requestID",
+				ErrorCode:  "InValidRequestError",
+				Message:    "random",
+				StatusCode: http.StatusBadRequest,
+				ErrorText:  errRandom.Error(),
+			},
+		},
+		{
+			name: "Should render ServiceFault",
+			err:  pe.ServiceFault(ctx, "random", errRandom),
+			wantErr: pe.APIError{
+				RequestID:  "requestID",
+				ErrorCode:  "ServiceFault",
+				Message:    "random",
+				StatusCode: http.StatusInternalServerError,
+				ErrorText:  errRandom.Error(),
+			},
+		},
+		{
+			name: "Should render UserError",
+			err:  pe.UserError(ctx, "random", errRandom),
+			wantErr: pe.APIError{
+				RequestID:  "requestID",
+				ErrorCode:  "UserError",
+				Message:    "random",
+				StatusCode: http.StatusBadRequest,
+				ErrorText:  errRandom.Error(),
+			},
+		},
+		{
 			name: "Should render non APIError",
 			err:  errRandom,
-			wantErr: prbot.APIError{
+			wantErr: pe.APIError{
 				RequestID:  "requestID",
 				ErrorCode:  "Unknown",
 				StatusCode: http.StatusInternalServerError,
@@ -57,9 +103,9 @@ func TestRenderError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req, _ := NewRequest(t, tt.wantErr.RequestID)
 			rr := httptest.NewRecorder()
-			prbot.RenderError(rr, req, tt.err)
+			pe.RenderError(rr, req, tt.err)
 			assert.Equal(t, tt.wantErr.StatusCode, rr.Code)
-			var res prbot.APIError
+			var res pe.APIError
 			err := json.Unmarshal(rr.Body.Bytes(), &res)
 			assert.Nil(t, err, "error when unmarshalling response")
 			assert.Equal(t, tt.wantErr, res)

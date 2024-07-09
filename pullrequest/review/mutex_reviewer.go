@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/go-chi/httplog"
 
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 )
 
@@ -33,7 +34,7 @@ func (r *mutexReviewer) releaseLock(ctx context.Context, lock *dynamolock.Lock, 
 	oplog := httplog.LogEntry(ctx)
 	success, err := r.locker.ReleaseLockWithContext(ctx, lock)
 	if !success {
-		oplog.Err(err).Msgf("lock for PR %v was already released", id.URL)
+		oplog.Error().Msgf("lock for PR %v was already released", id.URL)
 	}
 	if err != nil {
 		oplog.Err(err).Msgf("error releasing lock for PR %v", id.URL)
@@ -49,7 +50,7 @@ func (r *mutexReviewer) acquireLock(ctx context.Context, id id.PR) (*dynamolock.
 	)
 	if err != nil {
 		oplog.Err(err).Msgf("error acquiring lock for PR %v", id.URL)
-		return nil, err
+		return nil, pe.TooManyRequestError(ctx, "Error acquiring lock", err)
 	}
 	return lock, nil
 }
@@ -58,6 +59,7 @@ func (r *mutexReviewer) acquireLock(ctx context.Context, id id.PR) (*dynamolock.
 func (r *mutexReviewer) Approve(ctx context.Context, id id.PR, body string, opts ApproveOptions) error {
 	lock, err := r.acquireLock(ctx, id)
 	if err != nil {
+		// TODO: handle burst of PR events better.
 		return err
 	}
 	defer r.releaseLock(ctx, lock, id)
@@ -68,6 +70,7 @@ func (r *mutexReviewer) Approve(ctx context.Context, id id.PR, body string, opts
 func (r *mutexReviewer) Comment(ctx context.Context, id id.PR, body string) error {
 	lock, err := r.acquireLock(ctx, id)
 	if err != nil {
+		// TODO: handle burst of PR events better.
 		return err
 	}
 	defer r.releaseLock(ctx, lock, id)
@@ -78,6 +81,7 @@ func (r *mutexReviewer) Comment(ctx context.Context, id id.PR, body string) erro
 func (r *mutexReviewer) RequestChanges(ctx context.Context, id id.PR, body string) error {
 	lock, err := r.acquireLock(ctx, id)
 	if err != nil {
+		// TODO: handle burst of PR events better.
 		return err
 	}
 	defer r.releaseLock(ctx, lock, id)
