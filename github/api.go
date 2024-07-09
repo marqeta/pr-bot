@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/google/go-github/v50/github"
-	prbot "github.com/marqeta/pr-bot"
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/shurcooL/githubv4"
 )
@@ -47,7 +47,7 @@ type API interface {
 	AddReview(ctx context.Context, id id.PR, summary, event string) error
 	EnableAutoMerge(ctx context.Context, id id.PR, method githubv4.PullRequestMergeMethod) error
 	IssueComment(ctx context.Context, id id.PR, comment string) error
-	IssueCommentForError(ctx context.Context, id id.PR, err prbot.APIError) error
+	IssueCommentForError(ctx context.Context, id id.PR, err pe.APIError) error
 	ListAllTopics(ctx context.Context, id id.PR) ([]string, error)
 	ListRequiredStatusChecks(ctx context.Context, id id.PR, branch string) ([]string, error)
 	ListFilesInRootDir(ctx context.Context, id id.PR, branch string) ([]string, error)

@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/go-github/v50/github"
-	prbot "github.com/marqeta/pr-bot"
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/shurcooL/githubv4"
@@ -59,7 +59,7 @@ func (gh *githubDao) ListReviews(ctx context.Context, id id.PR) ([]*github.PullR
 func (gh *githubDao) GetBranchProtection(ctx context.Context, id id.PR, branch string) (*github.Protection, error) {
 	b, resp, err := gh.v3.Repositories.GetBranchProtection(ctx, id.Owner, id.Repo, branch)
 	if err != nil {
-		return nil, err
+		return nil, classifyError(ctx, resp, fmt.Sprintf("error getting branch protection for PR %v", id.URL), err)
 	}
 	gh.emitTokenExpiration(ctx, resp)
 	return b, nil
@@ -84,7 +84,7 @@ func (gh *githubDao) ListFilesInRootDir(ctx context.Context, id id.PR, branch st
 		Ref: branch,
 	})
 	if err != nil {
-		return nil, err
+		return nil, classifyError(ctx, resp, fmt.Sprintf("error listing files on repo for PR %v", id.URL), err)
 	}
 	gh.emitTokenExpiration(ctx, resp)
 	filenames := make([]string, len(files))
@@ -101,7 +101,8 @@ func (gh *githubDao) ListFilesInRootDir(ctx context.Context, id id.PR, branch st
 func (gh *githubDao) ListRequiredStatusChecks(ctx context.Context, id id.PR, branch string) ([]string, error) {
 	checks, resp, err := gh.v3.Repositories.ListRequiredStatusChecksContexts(ctx, id.Owner, id.Repo, branch)
 	if err != nil {
-		return nil, err
+		return nil, classifyError(ctx, resp,
+			fmt.Sprintf("error listing required status checks on repo for PR %v", id.URL), err)
 	}
 	gh.emitTokenExpiration(ctx, resp)
 	return checks, nil
@@ -173,7 +174,7 @@ func (gh *githubDao) AddReview(ctx context.Context, id id.PR, summary, event str
 }
 
 // IssueCommentForError implements Dao
-func (gh *githubDao) IssueCommentForError(ctx context.Context, id id.PR, apiError prbot.APIError) error {
+func (gh *githubDao) IssueCommentForError(ctx context.Context, id id.PR, apiError pe.APIError) error {
 	b, err := json.MarshalIndent(apiError, "", "  ")
 	if err != nil {
 		return err
@@ -199,4 +200,21 @@ func (gh *githubDao) UI(id id.PR) string {
 		return fmt.Sprintf("http://%s:%d/ui/eval/%s/pull/%d", gh.serverHost, gh.serverPort, id.RepoFullName, id.Number)
 	}
 	return fmt.Sprintf("https://%s/ui/eval/%s/pull/%d", gh.serverHost, id.RepoFullName, id.Number)
+}
+
+func classifyError(ctx context.Context, resp *github.Response, msg string, err error) error {
+	if resp == nil {
+		return err
+	}
+	if isClientError(resp) {
+		return pe.UserError(ctx, msg, err)
+	}
+	return pe.ServiceFault(ctx, msg, err)
+}
+
+func isClientError(resp *github.Response) bool {
+	if resp == nil {
+		return false
+	}
+	return resp.StatusCode >= 400 && resp.StatusCode < 500
 }

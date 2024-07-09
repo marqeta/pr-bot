@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/configstore"
+	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	lim "github.com/mennanov/limiters"
 )
@@ -46,7 +46,7 @@ func (sw *swLimiter) ShouldThrottle(ctx context.Context, id id.PR) error {
 	if err != nil && errors.Is(err, lim.ErrLimitExhausted) {
 		// throttled
 		msg := fmt.Sprintf("%v throttled request for key %v, try again in %v", sw.Name(), sw.Key(id), waitTime)
-		return prbot.TooManyRequestError(ctx, msg, err)
+		return pe.TooManyRequestError(ctx, msg, err)
 	}
 	return err
 }

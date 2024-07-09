@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/go-chi/httplog"
-	prbot "github.com/marqeta/pr-bot"
+	pe "github.com/marqeta/pr-bot/errors"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
@@ -24,16 +24,15 @@ func (p *preCondValidationReviewer) Approve(ctx context.Context, id id.PR, body 
 	oplog := httplog.LogEntry(ctx)
 
 	if !opts.AutoMergeEnabled {
-		ae := prbot.UserError(ctx, AutoMergeError, ErrAutoMergeDisabled)
+		ae := pe.UserError(ctx, AutoMergeError, ErrAutoMergeDisabled)
 		oplog.Error().Msgf("Auto merge is disabled in repo for pr %v", id.URL)
 		return ae
 	}
 
 	checks, err := p.api.ListRequiredStatusChecks(ctx, id, opts.DefaultBranch)
 	if err != nil {
-		oplog.Err(err).Msgf("error listing required status checks on repo for PR %v", id.URL)
-		ae := prbot.ServiceFault(ctx, "Error listing status checks on Repo", err)
-		return ae
+		oplog.Err(err).Send()
+		return err
 	}
 
 	for _, check := range checks {
@@ -46,9 +45,8 @@ func (p *preCondValidationReviewer) Approve(ctx context.Context, id id.PR, body 
 	// No required blackbird-ci check, check if it is a BB build repo
 	files, err := p.api.ListFilesInRootDir(ctx, id, opts.DefaultBranch)
 	if err != nil {
-		oplog.Err(err).Msgf("error listing files on repo for PR %v", id.URL)
-		ae := prbot.ServiceFault(ctx, "Error listing files on Repo", err)
-		return ae
+		oplog.Err(err).Send()
+		return err
 	}
 
 	for _, file := range files {

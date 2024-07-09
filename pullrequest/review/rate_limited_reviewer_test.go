@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	prbot "github.com/marqeta/pr-bot"
+	pe "github.com/marqeta/pr-bot/errors"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/pullrequest/review"
@@ -18,7 +18,7 @@ func Test_rateLimitedReviewer_Approve(t *testing.T) {
 	ctx := context.Background()
 	//nolint:goerr113
 	errRandom := errors.New("random error")
-	errThrottled := prbot.TooManyRequestError(ctx, "throttled", lim.ErrLimitExhausted)
+	errThrottled := pe.TooManyRequestError(ctx, "throttled", lim.ErrLimitExhausted)
 	type args struct {
 		id              id.PR
 		body            string
