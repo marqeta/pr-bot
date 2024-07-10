@@ -153,7 +153,7 @@ func setupReviewer(svc *prbot.Service, cfg *prbot.Config, api gh.API) review.Rev
 	base := review.NewReviewer(api, svc.Metrics)
 	throttler := setupThrottlers(svc, cfg)
 	rateLimited := review.NewRateLimitedReviewer(base, api, throttler)
-	precond := review.NewPreCondValidationReviewer(rateLimited, api, svc.Metrics)
+	precond := review.NewPreCondValidationReviewer(rateLimited)
 	dedup := review.NewDedupReviewer(precond, api, cfg.GHE.ServiceAccount)
 	locker, err := review.NewLocker(svc.DDB, cfg.Reviewer.Locker.TableName)
 	if err != nil {
