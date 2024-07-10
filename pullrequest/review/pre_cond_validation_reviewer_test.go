@@ -7,19 +7,16 @@ import (
 
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
-	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/pullrequest/review"
 )
 
 func Test_preCondValidationReviewer_Approve(t *testing.T) {
 	ctx := context.Background()
-	//nolint:goerr113
-	errRandom := errors.New("random error")
 	type args struct {
 		id              id.PR
 		body            string
 		opts            review.ApproveOptions
-		setExpectations func(api *gh.MockAPI, delegate *review.MockReviewer)
+		setExpectations func(delegate *review.MockReviewer)
 	}
 	tests := []struct {
 		name    string
@@ -27,7 +24,7 @@ func Test_preCondValidationReviewer_Approve(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "Should call delegate for non bb repos",
+			name: "Should call delegate if automerge is enabled",
 			args: args{
 				id:   sampleID(),
 				body: "LGTM",
@@ -35,147 +32,7 @@ func Test_preCondValidationReviewer_Approve(t *testing.T) {
 					DefaultBranch:    "main",
 					AutoMergeEnabled: true,
 				},
-				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{"status1", "status2"}, nil)
-					api.EXPECT().ListFilesInRootDir(ctx, sampleID(), "main").
-						Return([]string{"file1", "file2"}, nil)
-					delegate.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
-						DefaultBranch:    "main",
-						AutoMergeEnabled: true,
-					}).Return(nil)
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "Should throw error from delegate for non bb repos",
-			args: args{
-				id:   sampleID(),
-				body: "LGTM",
-				opts: review.ApproveOptions{
-					DefaultBranch:    "main",
-					AutoMergeEnabled: true,
-				},
-				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{"status1", "status2"}, nil)
-					api.EXPECT().ListFilesInRootDir(ctx, sampleID(), "main").
-						Return([]string{"file1", "file2"}, nil)
-					delegate.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
-						DefaultBranch:    "main",
-						AutoMergeEnabled: true,
-					}).Return(errRandom)
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Should call delegate for bb repos with bb-ci",
-			args: args{
-				id:   sampleID(),
-				body: "LGTM",
-				opts: review.ApproveOptions{
-					DefaultBranch:    "main",
-					AutoMergeEnabled: true,
-				},
-				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{"status1", "blackbird-ci"}, nil)
-					delegate.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
-						DefaultBranch:    "main",
-						AutoMergeEnabled: true,
-					}).Return(nil)
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "Should throw from delegate for bb repos with bb-ci",
-			args: args{
-				id:   sampleID(),
-				body: "LGTM",
-				opts: review.ApproveOptions{
-					DefaultBranch:    "main",
-					AutoMergeEnabled: true,
-				},
-				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{"status1", "blackbird-ci"}, nil)
-					delegate.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
-						DefaultBranch:    "main",
-						AutoMergeEnabled: true,
-					}).Return(errRandom)
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Should not call delegate for bb repos withou bb-ci",
-			args: args{
-				id:   sampleID(),
-				body: "LGTM",
-				opts: review.ApproveOptions{
-					DefaultBranch:    "main",
-					AutoMergeEnabled: true,
-				},
-				setExpectations: func(api *gh.MockAPI, _ *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{"status1", "status2"}, nil)
-					api.EXPECT().ListFilesInRootDir(ctx, sampleID(), "main").
-						Return([]string{"file1", "blackbird.yaml"}, nil)
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "Should throw error if listRequiredStatusChecks fails",
-			args: args{
-				id:   sampleID(),
-				body: "LGTM",
-				opts: review.ApproveOptions{
-					DefaultBranch:    "main",
-					AutoMergeEnabled: true,
-				},
-				setExpectations: func(api *gh.MockAPI, _ *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{}, errRandom)
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Should throw error if listfilesinrootdir fails",
-			args: args{
-				id:   sampleID(),
-				body: "LGTM",
-				opts: review.ApproveOptions{
-					DefaultBranch:    "main",
-					AutoMergeEnabled: true,
-				},
-				setExpectations: func(api *gh.MockAPI, _ *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{}, nil)
-					api.EXPECT().ListFilesInRootDir(ctx, sampleID(), "main").
-						Return([]string{}, errRandom)
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Should call delegate on empty/new repo",
-			args: args{
-				id:   sampleID(),
-				body: "LGTM",
-				opts: review.ApproveOptions{
-					DefaultBranch:    "main",
-					AutoMergeEnabled: true,
-				},
-				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
-					api.EXPECT().ListRequiredStatusChecks(ctx, sampleID(), "main").
-						Return([]string{}, nil)
-					api.EXPECT().ListFilesInRootDir(ctx, sampleID(), "main").
-						Return([]string{}, nil)
+				setExpectations: func(delegate *review.MockReviewer) {
 					delegate.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
 						DefaultBranch:    "main",
 						AutoMergeEnabled: true,
@@ -192,7 +49,7 @@ func Test_preCondValidationReviewer_Approve(t *testing.T) {
 				opts: review.ApproveOptions{
 					DefaultBranch: "main",
 				},
-				setExpectations: func(_ *gh.MockAPI, _ *review.MockReviewer) {
+				setExpectations: func(_ *review.MockReviewer) {
 				},
 			},
 			wantErr: true,
@@ -200,10 +57,9 @@ func Test_preCondValidationReviewer_Approve(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			api := gh.NewMockAPI(t)
 			delegate := review.NewMockReviewer(t)
-			tt.args.setExpectations(api, delegate)
-			r := review.NewPreCondValidationReviewer(delegate, api, metrics.NewNoopEmitter())
+			tt.args.setExpectations(delegate)
+			r := review.NewPreCondValidationReviewer(delegate)
 			if err := r.Approve(ctx, tt.args.id, tt.args.body, tt.args.opts); (err != nil) != tt.wantErr {
 				t.Errorf("preCondValidationReviewer.Approve() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -253,7 +109,7 @@ func Test_preCondValidationReviewer_Comment(t *testing.T) {
 			api := gh.NewMockAPI(t)
 			delegate := review.NewMockReviewer(t)
 			tt.args.setExpectations(api, delegate)
-			r := review.NewPreCondValidationReviewer(delegate, api, metrics.NewNoopEmitter())
+			r := review.NewPreCondValidationReviewer(delegate)
 			if err := r.Comment(ctx, tt.args.id, tt.args.body); (err != nil) != tt.wantErr {
 				t.Errorf("preCondValidationReviewer.Comment() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -303,7 +159,7 @@ func Test_preCondValidationReviewer_RequestChanges(t *testing.T) {
 			api := gh.NewMockAPI(t)
 			delegate := review.NewMockReviewer(t)
 			tt.args.setExpectations(api, delegate)
-			r := review.NewPreCondValidationReviewer(delegate, api, metrics.NewNoopEmitter())
+			r := review.NewPreCondValidationReviewer(delegate)
 			if err := r.RequestChanges(ctx, tt.args.id, tt.args.body); (err != nil) != tt.wantErr {
 				t.Errorf("preCondValidationReviewer.RequestChanges() error = %v, wantErr %v", err, tt.wantErr)
 			}
