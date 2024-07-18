@@ -116,6 +116,50 @@ func Test_eventHandlerV2_EvalAndReview(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "Should approve PRs with squash merge method for empty commits",
+			args: args{
+				id:    sampleID(),
+				event: empty(allMergeMethods(prEvent(github.String("opened"), sampleID()))),
+				setExpectaions: func(e *opa.MockEvaluator, r *review.MockReviewer, p *github.PullRequestEvent) {
+					e.EXPECT().Evaluate(ctx, ToGHE(p)).Return(types.Result{
+						Track: true,
+						Review: types.Review{
+							Type: types.Approve,
+							Body: "LGTM",
+						},
+					}, nil)
+					r.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
+						AutoMergeEnabled: true,
+						DefaultBranch:    "main",
+						MergeMethod:      githubv4.PullRequestMergeMethodSquash,
+					}).Return(nil)
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Should approve PRs with merge commit for empty commits",
+			args: args{
+				id:    sampleID(),
+				event: empty(rebase(merge(prEvent(github.String("opened"), sampleID())))),
+				setExpectaions: func(e *opa.MockEvaluator, r *review.MockReviewer, p *github.PullRequestEvent) {
+					e.EXPECT().Evaluate(ctx, ToGHE(p)).Return(types.Result{
+						Track: true,
+						Review: types.Review{
+							Type: types.Approve,
+							Body: "LGTM",
+						},
+					}, nil)
+					r.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
+						AutoMergeEnabled: true,
+						DefaultBranch:    "main",
+						MergeMethod:      githubv4.PullRequestMergeMethodMerge,
+					}).Return(nil)
+				},
+			},
+			wantErr: false,
+		},
+		{
 			name: "Should approve PRs with squash merge method",
 			args: args{
 				id:    sampleID(),
