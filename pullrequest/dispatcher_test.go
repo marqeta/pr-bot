@@ -373,6 +373,11 @@ func sampleID() id.PR {
 	}
 }
 
+func empty(e *github.PullRequestEvent) *github.PullRequestEvent {
+	e.PullRequest.ChangedFiles = github.Int(0)
+	return e
+}
+
 func prEvent(action *string, id id.PR) *github.PullRequestEvent {
 	url := fmt.Sprintf("%s/%s/%d", id.Owner, id.Repo, id.Number)
 	return &github.PullRequestEvent{
@@ -392,6 +397,7 @@ func prEvent(action *string, id id.PR) *github.PullRequestEvent {
 					AllowMergeCommit: aws.Bool(false),
 				},
 			},
+			ChangedFiles: github.Int(1),
 		},
 		Repo: &github.Repository{
 			Owner: &github.User{
@@ -403,6 +409,14 @@ func prEvent(action *string, id id.PR) *github.PullRequestEvent {
 			Visibility:    github.String("public"),
 		},
 	}
+}
+
+func allMergeMethods(event *github.PullRequestEvent) *github.PullRequestEvent {
+	event.PullRequest.Base.Repo.AllowAutoMerge = aws.Bool(true)
+	event.PullRequest.Base.Repo.AllowMergeCommit = aws.Bool(true)
+	event.PullRequest.Base.Repo.AllowRebaseMerge = aws.Bool(true)
+	event.PullRequest.Base.Repo.AllowSquashMerge = aws.Bool(true)
+	return event
 }
 
 func merge(event *github.PullRequestEvent) *github.PullRequestEvent {

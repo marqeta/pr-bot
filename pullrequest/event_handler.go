@@ -71,8 +71,12 @@ func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, event *gith
 func mergeMethod(event *github.PullRequestEvent) githubv4.PullRequestMergeMethod {
 	rebase := event.PullRequest.GetBase().GetRepo().GetAllowRebaseMerge()
 	squash := event.PullRequest.GetBase().GetRepo().GetAllowSquashMerge()
-
-	if rebase {
+	fc := event.PullRequest.GetChangedFiles()
+	// TODO: let policy specify what merge method to use.
+	// when rebasing empty commits on to main,
+	// no new commit is created, therefore no triggers would be fired.
+	// use squash to force a new commit to be created. when merging empty PRs
+	if rebase && fc > 0 {
 		return githubv4.PullRequestMergeMethodRebase
 	}
 	if squash {
