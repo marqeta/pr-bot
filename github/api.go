@@ -53,4 +53,5 @@ type API interface {
 	ListFilesInRootDir(ctx context.Context, id id.PR, branch string) ([]string, error)
 	ListFilesChangedInPR(ctx context.Context, id id.PR) ([]*github.CommitFile, error)
 	GetBranchProtection(ctx context.Context, id id.PR, branch string) (*github.Protection, error)
+	ListNamesOfFilesChangedInPR(ctx context.Context, id id.PR) ([]string, error)
 }

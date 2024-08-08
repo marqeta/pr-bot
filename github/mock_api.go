@@ -427,6 +427,61 @@ func (_c *MockAPI_ListFilesInRootDir_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// ListNamesOfFilesChangedInPR provides a mock function with given fields: ctx, _a1
+func (_m *MockAPI) ListNamesOfFilesChangedInPR(ctx context.Context, _a1 id.PR) ([]string, error) {
+	ret := _m.Called(ctx, _a1)
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) ([]string, error)); ok {
+		return rf(ctx, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) []string); ok {
+		r0 = rf(ctx, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, id.PR) error); ok {
+		r1 = rf(ctx, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockAPI_ListNamesOfFilesChangedInPR_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListNamesOfFilesChangedInPR'
+type MockAPI_ListNamesOfFilesChangedInPR_Call struct {
+	*mock.Call
+}
+
+// ListNamesOfFilesChangedInPR is a helper method to define mock.On call
+//   - ctx context.Context
+//   - _a1 id.PR
+func (_e *MockAPI_Expecter) ListNamesOfFilesChangedInPR(ctx interface{}, _a1 interface{}) *MockAPI_ListNamesOfFilesChangedInPR_Call {
+	return &MockAPI_ListNamesOfFilesChangedInPR_Call{Call: _e.mock.On("ListNamesOfFilesChangedInPR", ctx, _a1)}
+}
+
+func (_c *MockAPI_ListNamesOfFilesChangedInPR_Call) Run(run func(ctx context.Context, _a1 id.PR)) *MockAPI_ListNamesOfFilesChangedInPR_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(id.PR))
+	})
+	return _c
+}
+
+func (_c *MockAPI_ListNamesOfFilesChangedInPR_Call) Return(_a0 []string, _a1 error) *MockAPI_ListNamesOfFilesChangedInPR_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockAPI_ListNamesOfFilesChangedInPR_Call) RunAndReturn(run func(context.Context, id.PR) ([]string, error)) *MockAPI_ListNamesOfFilesChangedInPR_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListRequiredStatusChecks provides a mock function with given fields: ctx, _a1, branch
 func (_m *MockAPI) ListRequiredStatusChecks(ctx context.Context, _a1 id.PR, branch string) ([]string, error) {
 	ret := _m.Called(ctx, _a1, branch)
