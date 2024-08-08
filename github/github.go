@@ -118,6 +118,38 @@ func (gh *githubDao) ListAllTopics(ctx context.Context, id id.PR) ([]string, err
 	return topics, err
 }
 
+// ListNamesOfFilesChangedInPR implements Dao
+// TODO iterate over pages
+func (gh *githubDao) ListNamesOfFilesChangedInPR(ctx context.Context, id id.PR) ([]string, error) {
+	var q struct {
+		Repository struct {
+			PullRequest struct {
+				Files struct {
+					Edges []struct {
+						Node struct {
+							Path githubv4.String
+						}
+					}
+				} `graphql:"files(first: 100)"`
+			} `graphql:"pullRequest(number: $prNumber)"`
+		} `graphql:"repository(owner: $owner, name: $repo)"`
+	}
+	variables := map[string]interface{}{
+		"owner":    githubv4.String(id.Owner),
+		"repo":     githubv4.String(id.Repo),
+		"prNumber": githubv4.Int(id.Number),
+	}
+	err := gh.v4.Query(ctx, &q, variables)
+	if err != nil {
+		return nil, err
+	}
+	filepaths := make([]string, 0, len(q.Repository.PullRequest.Files.Edges))
+	for _, edge := range q.Repository.PullRequest.Files.Edges {
+		filepaths = append(filepaths, string(edge.Node.Path))
+	}
+	return filepaths, nil
+}
+
 // EnableAutoMerge implements Dao
 func (gh *githubDao) EnableAutoMerge(ctx context.Context, id id.PR, method githubv4.PullRequestMergeMethod) error {
 	var mutation struct {
