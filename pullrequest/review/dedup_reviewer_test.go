@@ -85,27 +85,31 @@ func TestDedupReviewer_Approve(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Should not approve PR when there is a comment",
+			name: "Should approve PR when there is a comment",
 			args: args{
 				id:             sampleID(),
 				body:           "LGTM",
 				serviceAccount: "svc-ci-prbot",
-				setExpectations: func(api *gh.MockAPI, _ *review.MockReviewer) {
+				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
 					api.EXPECT().ListReviews(ctx, sampleID()).
 						Return(reviews("commented"), nil)
+					delegate.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{}).
+						Return(nil)
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "Should not approve PR when there is a request for changes",
+			name: "Should approve PR when there is a request for changes",
 			args: args{
 				id:             sampleID(),
 				body:           "LGTM",
 				serviceAccount: "svc-ci-prbot",
-				setExpectations: func(api *gh.MockAPI, _ *review.MockReviewer) {
+				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
 					api.EXPECT().ListReviews(ctx, sampleID()).
 						Return(reviews("changes_requested"), nil)
+					delegate.EXPECT().Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{}).
+						Return(nil)
 				},
 			},
 			wantErr: false,
@@ -239,14 +243,29 @@ func TestDedupReviewer_Comment(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Should not comment on PR when there is a request for changes",
+			name: "Should comment on PR when there is approval",
 			args: args{
 				id:             sampleID(),
 				body:           "comment",
 				serviceAccount: "svc-ci-prbot",
-				setExpectations: func(api *gh.MockAPI, _ *review.MockReviewer) {
+				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
+					api.EXPECT().ListReviews(ctx, sampleID()).
+						Return(reviews("approved"), nil)
+					delegate.EXPECT().Comment(ctx, sampleID(), "comment").Return(nil)
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Should comment on PR when there is a request for changes",
+			args: args{
+				id:             sampleID(),
+				body:           "comment",
+				serviceAccount: "svc-ci-prbot",
+				setExpectations: func(api *gh.MockAPI, delegate *review.MockReviewer) {
 					api.EXPECT().ListReviews(ctx, sampleID()).
 						Return(reviews("changes_requested"), nil)
+					delegate.EXPECT().Comment(ctx, sampleID(), "comment").Return(nil)
 				},
 			},
 			wantErr: false,
