@@ -75,14 +75,14 @@ func NewDedupReviewer(delegate Reviewer, api gh.API, serviceAccount string) Revi
 }
 
 // checkForReview checks if the service account has already reviewed the PR with a review type of minReviewType or higher
-func (d *DedupReviewer) checkForReview(reviews []*github.PullRequestReview, minReviewType types.ReviewType) bool {
+func (d *DedupReviewer) checkForReview(reviews []*github.PullRequestReview, reviewType types.ReviewType) bool {
 	for _, review := range reviews {
 		if review.User.GetLogin() == d.serviceAccount {
 			t, err := types.ParseReviewState(review.GetState())
 			if err != nil {
 				continue
 			}
-			if t >= minReviewType {
+			if t == reviewType {
 				return true
 			}
 		}
