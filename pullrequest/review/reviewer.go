@@ -51,8 +51,10 @@ func (r *reviewer) Approve(ctx context.Context, id id.PR, body string, opts Appr
 		// TODO publish error in UI and/or as comments on PR
 		return ae
 	}
-
-	r.metrics.EmitDist(ctx, "approvedPRs", 1.0, id.ToTags())
+	tags := append(id.ToTags(), fmt.Sprintf("mergeMethod:%s", opts.MergeMethod))
+	tags = append(tags, fmt.Sprintf("reviewType:%s", "approve"))
+	r.metrics.EmitDist(ctx, "reviewedPRs", 1.0, tags)
+	r.metrics.EmitDist(ctx, "approvedPRs", 1.0, tags)
 	oplog.Info().Msgf("reviewed PR reviewType:approve")
 	return nil
 }
@@ -67,7 +69,9 @@ func (r *reviewer) Comment(ctx context.Context, id id.PR, body string) error {
 		// TODO publish error in UI and/or as comments on PR
 		return ae
 	}
-	r.metrics.EmitDist(ctx, "commentedPRs", 1.0, id.ToTags())
+	tags := append(id.ToTags(), fmt.Sprintf("reviewType:%s", "comment"))
+	r.metrics.EmitDist(ctx, "reviewedPRs", 1.0, tags)
+	r.metrics.EmitDist(ctx, "commentedPRs", 1.0, tags)
 	oplog.Info().Msgf("reviewed PR reviewType:comment")
 	return nil
 }
@@ -82,8 +86,9 @@ func (r *reviewer) RequestChanges(ctx context.Context, id id.PR, body string) er
 		// TODO publish error in UI and/or as comments on PR
 		return ae
 	}
-
-	r.metrics.EmitDist(ctx, "changesRequestedPRs", 1.0, id.ToTags())
+	tags := append(id.ToTags(), fmt.Sprintf("reviewType:%s", "request_changes"))
+	r.metrics.EmitDist(ctx, "reviewedPRs", 1.0, tags)
+	r.metrics.EmitDist(ctx, "changesRequestedPRs", 1.0, tags)
 	oplog.Info().Msgf("reviewed PR reviewType:request_changes")
 	return nil
 }
