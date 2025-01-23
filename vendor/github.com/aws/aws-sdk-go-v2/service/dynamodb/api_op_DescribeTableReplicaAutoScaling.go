@@ -12,8 +12,9 @@ import (
 )
 
 // Describes auto scaling settings across replicas of the global table at once.
-// This operation only applies to Version 2019.11.21 (Current) (https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/globaltables.V2.html)
-// of global tables.
+//
+// For global tables, this operation only applies to global tables using Version
+// 2019.11.21 (Current version).
 func (c *Client) DescribeTableReplicaAutoScaling(ctx context.Context, params *DescribeTableReplicaAutoScalingInput, optFns ...func(*Options)) (*DescribeTableReplicaAutoScalingOutput, error) {
 	if params == nil {
 		params = &DescribeTableReplicaAutoScalingInput{}
@@ -31,7 +32,8 @@ func (c *Client) DescribeTableReplicaAutoScaling(ctx context.Context, params *De
 
 type DescribeTableReplicaAutoScalingInput struct {
 
-	// The name of the table.
+	// The name of the table. You can also provide the Amazon Resource Name (ARN) of
+	// the table in this parameter.
 	//
 	// This member is required.
 	TableName *string
@@ -93,6 +95,9 @@ func (c *Client) addOperationDescribeTableReplicaAutoScalingMiddlewares(stack *m
 	if err = addRecordResponseTiming(stack); err != nil {
 		return err
 	}
+	if err = addSpanRetryLoop(stack, options); err != nil {
+		return err
+	}
 	if err = addClientUserAgent(stack, options); err != nil {
 		return err
 	}
@@ -103,6 +108,12 @@ func (c *Client) addOperationDescribeTableReplicaAutoScalingMiddlewares(stack *m
 		return err
 	}
 	if err = addSetLegacyContextSigningOptionsMiddleware(stack); err != nil {
+		return err
+	}
+	if err = addTimeOffsetBuild(stack, c); err != nil {
+		return err
+	}
+	if err = addUserAgentRetryMode(stack, options); err != nil {
 		return err
 	}
 	if err = addOpDescribeTableReplicaAutoScalingValidationMiddleware(stack); err != nil {
@@ -130,6 +141,18 @@ func (c *Client) addOperationDescribeTableReplicaAutoScalingMiddlewares(stack *m
 		return err
 	}
 	if err = addDisableHTTPSMiddleware(stack, options); err != nil {
+		return err
+	}
+	if err = addSpanInitializeStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanInitializeEnd(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestEnd(stack); err != nil {
 		return err
 	}
 	return nil

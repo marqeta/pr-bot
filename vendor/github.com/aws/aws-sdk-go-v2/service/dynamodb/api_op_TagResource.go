@@ -15,9 +15,23 @@ import (
 // Associate a set of tags with an Amazon DynamoDB resource. You can then activate
 // these user-defined tags so that they appear on the Billing and Cost Management
 // console for cost allocation tracking. You can call TagResource up to five times
-// per second, per account. For an overview on tagging DynamoDB resources, see
-// Tagging for DynamoDB (https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Tagging.html)
-// in the Amazon DynamoDB Developer Guide.
+// per second, per account.
+//
+//   - TagResource is an asynchronous operation. If you issue a ListTagsOfResourcerequest
+//     immediately after a TagResource request, DynamoDB might return your previous
+//     tag set, if there was one, or an empty tag set. This is because
+//     ListTagsOfResource uses an eventually consistent query, and the metadata for
+//     your tags or table might not be available at that moment. Wait for a few
+//     seconds, and then try the ListTagsOfResource request again.
+//
+//   - The application or removal of tags using TagResource and UntagResource APIs
+//     is eventually consistent. ListTagsOfResource API will only reflect the changes
+//     after a few seconds.
+//
+// For an overview on tagging DynamoDB resources, see [Tagging for DynamoDB] in the Amazon DynamoDB
+// Developer Guide.
+//
+// [Tagging for DynamoDB]: https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Tagging.html
 func (c *Client) TagResource(ctx context.Context, params *TagResourceInput, optFns ...func(*Options)) (*TagResourceOutput, error) {
 	if params == nil {
 		params = &TagResourceInput{}
@@ -99,6 +113,9 @@ func (c *Client) addOperationTagResourceMiddlewares(stack *middleware.Stack, opt
 	if err = addRecordResponseTiming(stack); err != nil {
 		return err
 	}
+	if err = addSpanRetryLoop(stack, options); err != nil {
+		return err
+	}
 	if err = addClientUserAgent(stack, options); err != nil {
 		return err
 	}
@@ -112,6 +129,12 @@ func (c *Client) addOperationTagResourceMiddlewares(stack *middleware.Stack, opt
 		return err
 	}
 	if err = addSetLegacyContextSigningOptionsMiddleware(stack); err != nil {
+		return err
+	}
+	if err = addTimeOffsetBuild(stack, c); err != nil {
+		return err
+	}
+	if err = addUserAgentRetryMode(stack, options); err != nil {
 		return err
 	}
 	if err = addOpTagResourceValidationMiddleware(stack); err != nil {
@@ -139,6 +162,18 @@ func (c *Client) addOperationTagResourceMiddlewares(stack *middleware.Stack, opt
 		return err
 	}
 	if err = addDisableHTTPSMiddleware(stack, options); err != nil {
+		return err
+	}
+	if err = addSpanInitializeStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanInitializeEnd(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestEnd(stack); err != nil {
 		return err
 	}
 	return nil

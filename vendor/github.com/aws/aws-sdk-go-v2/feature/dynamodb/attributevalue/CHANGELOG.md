@@ -1,3 +1,234 @@
+# v1.15.28 (2025-01-17)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.27 (2025-01-15)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.26 (2025-01-14)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.25 (2025-01-09)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.24 (2025-01-08)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.23 (2025-01-07)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.22 (2024-12-19)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.21 (2024-12-11)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.20 (2024-12-03.2)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.19 (2024-12-03)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.18 (2024-12-02)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.17 (2024-11-18)
+
+* **Dependency Update**: Update to smithy-go v1.22.1.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.16 (2024-11-13)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.15 (2024-11-07)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.14 (2024-11-06)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.13 (2024-10-28)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.12 (2024-10-08)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.11 (2024-10-07)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.10 (2024-10-04)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.9 (2024-10-03)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.8 (2024-09-27)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.7 (2024-09-25)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.6 (2024-09-23)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.5 (2024-09-20)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.4 (2024-09-17)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.3 (2024-09-09)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.2 (2024-09-04)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.1 (2024-09-03)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.0 (2024-08-26)
+
+* **Feature**: Add Encoder option to obey omitempty tag for NULL attribute values.
+
+# v1.14.12 (2024-08-22)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.11 (2024-08-15)
+
+* **Dependency Update**: Bump minimum Go version to 1.21.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.10 (2024-07-24)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.9 (2024-07-10.2)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.8 (2024-07-10)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.7 (2024-06-28)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.6 (2024-06-26)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.5 (2024-06-20)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.4 (2024-06-19)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.3 (2024-06-18)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.2 (2024-06-17)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.1 (2024-06-07)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.0 (2024-06-05)
+
+* **Feature**: Add codec options to use encoding.Text/Binary(Un)Marshaler when present on targets.
+
+# v1.13.21 (2024-06-03)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.20 (2024-05-28)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.19 (2024-05-24)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.18 (2024-05-23)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.17 (2024-05-16)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.16 (2024-05-15)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.15 (2024-05-08)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.14 (2024-05-02)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.13 (2024-03-29)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.12 (2024-03-25)
+
+* **Bug Fix**: Removes some duplicated reflection-based calls in the marshaler.
+
+# v1.13.11 (2024-03-20)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.10 (2024-03-18)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.9 (2024-03-07)
+
+* **Bug Fix**: Remove dependency on go-cmp.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.8 (2024-03-06)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.13.7 (2024-03-04)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
 # v1.13.6 (2024-02-23)
 
 * **Dependency Update**: Updated to the latest SDK module versions
