@@ -135,8 +135,10 @@ func (gh *githubDao) ListNamesOfFilesChangedInPR(ctx context.Context, id id.PR) 
 		} `graphql:"repository(owner: $owner, name: $repo)"`
 	}
 	variables := map[string]interface{}{
-		"owner":    githubv4.String(id.Owner),
-		"repo":     githubv4.String(id.Repo),
+		"owner": githubv4.String(id.Owner),
+		"repo":  githubv4.String(id.Repo),
+		// TODO handle int32 vs int usage in v3 and v4 version of github lcient
+		//nolint:gosec
 		"prNumber": githubv4.Int(id.Number),
 	}
 	err := gh.v4.Query(ctx, &q, variables)
