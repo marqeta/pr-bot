@@ -24,7 +24,7 @@ jobs:
         cache: false
 
     - name: Build
-      run: make build
+      run: make dep build
 
   test:
     runs-on: ubuntu-latest
@@ -38,7 +38,7 @@ jobs:
         cache: false
 
     - name: Test
-      run: make test
+      run: make dep test
 
   checks:
     runs-on: ubuntu-latest
@@ -52,10 +52,10 @@ jobs:
         cache: false
 
     - name: fmt
-      run: make fmt
+      run: make dep fmt
 
     - name: vet
-      run: make vet
+      run: make dep vet
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v6

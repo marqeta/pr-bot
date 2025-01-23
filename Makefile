@@ -21,6 +21,11 @@ test:
 build: clean
 	go build --mod=vendor -o ./bin/pr-bot cmd/pr-bot/main.go
 
+.PHONY: dep
+dep:
+	go mod tidy
+	go mod vendor
+
 .PHONY: fmt
 fmt:
 	go fmt --mod=vendor ./...
