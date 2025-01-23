@@ -1,3 +1,219 @@
+# v1.39.5 (2025-01-17)
+
+* **Bug Fix**: Fix bug where credentials weren't refreshed during retry loop.
+
+# v1.39.4 (2025-01-15)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.39.3 (2025-01-14)
+
+* **Bug Fix**: Fix issue where waiters were not failing on unmatched errors as they should. This may have breaking behavioral changes for users in fringe cases. See [this announcement](https://github.com/aws/aws-sdk-go-v2/discussions/2954) for more information.
+
+# v1.39.2 (2025-01-09)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.39.1 (2025-01-08)
+
+* No change notes available for this release.
+
+# v1.39.0 (2025-01-07)
+
+* **Feature**: This release makes Amazon DynamoDB point-in-time-recovery (PITR) to be configurable. You can set PITR recovery period for each table individually to between 1 and 35 days.
+
+# v1.38.1 (2024-12-19)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.38.0 (2024-12-03.2)
+
+* **Feature**: This change adds support for global tables with multi-Region strong consistency (in preview). The UpdateTable API now supports a new attribute MultiRegionConsistency to set consistency when creating global tables. The DescribeTable output now optionally includes the MultiRegionConsistency attribute.
+
+# v1.37.2 (2024-12-02)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.37.1 (2024-11-18)
+
+* **Dependency Update**: Update to smithy-go v1.22.1.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.37.0 (2024-11-13)
+
+* **Feature**: This release includes supports the new WarmThroughput feature for DynamoDB. You can now provide an optional WarmThroughput attribute for CreateTable or UpdateTable APIs to pre-warm your table or global secondary index. You can also use DescribeTable to see the latest WarmThroughput value.
+
+# v1.36.5 (2024-11-07)
+
+* **Bug Fix**: Adds case-insensitive handling of error message fields in service responses
+
+# v1.36.4 (2024-11-06)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.36.3 (2024-10-28)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.36.2 (2024-10-08)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.36.1 (2024-10-07)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.36.0 (2024-10-04)
+
+* **Feature**: Add support for HTTP client metrics.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.35.4 (2024-10-03)
+
+* No change notes available for this release.
+
+# v1.35.3 (2024-09-27)
+
+* No change notes available for this release.
+
+# v1.35.2 (2024-09-25)
+
+* No change notes available for this release.
+
+# v1.35.1 (2024-09-23)
+
+* No change notes available for this release.
+
+# v1.35.0 (2024-09-20)
+
+* **Feature**: Add tracing and metrics support to service clients.
+* **Feature**: Generate and use AWS-account-based endpoints for DynamoDB requests when the account ID is available. The new endpoint URL pattern will be https://<account-id>.ddb.<region>.amazonaws.com. See the documentation for details: https://docs.aws.amazon.com/sdkref/latest/guide/feature-account-endpoints.html.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.34.10 (2024-09-17)
+
+* **Bug Fix**: **BREAKFIX**: Only generate AccountIDEndpointMode config for services that use it. This is a compiler break, but removes no actual functionality, as no services currently use the account ID in endpoint resolution.
+
+# v1.34.9 (2024-09-09)
+
+* **Documentation**: Doc-only update for DynamoDB. Added information about async behavior for TagResource and UntagResource APIs and updated the description of ResourceInUseException.
+
+# v1.34.8 (2024-09-04)
+
+* No change notes available for this release.
+
+# v1.34.7 (2024-09-03)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.34.6 (2024-08-22)
+
+* No change notes available for this release.
+
+# v1.34.5 (2024-08-15)
+
+* **Dependency Update**: Bump minimum Go version to 1.21.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.34.4 (2024-07-24)
+
+* **Documentation**: DynamoDB doc only update for July
+
+# v1.34.3 (2024-07-10.2)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.34.2 (2024-07-10)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.34.1 (2024-06-28)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.34.0 (2024-06-26)
+
+* **Feature**: Support list-of-string endpoint parameter.
+
+# v1.33.2 (2024-06-20)
+
+* **Documentation**: Doc-only update for DynamoDB. Fixed Important note in 6 Global table APIs - CreateGlobalTable, DescribeGlobalTable, DescribeGlobalTableSettings, ListGlobalTables, UpdateGlobalTable, and UpdateGlobalTableSettings.
+
+# v1.33.1 (2024-06-19)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.33.0 (2024-06-18)
+
+* **Feature**: Track usage of various AWS SDK features in user-agent string.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.32.9 (2024-06-17)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.32.8 (2024-06-07)
+
+* **Bug Fix**: Add clock skew correction on all service clients
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.32.7 (2024-06-03)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.32.6 (2024-05-28)
+
+* **Documentation**: Doc-only update for DynamoDB. Specified the IAM actions needed to authorize a user to create a table with a resource-based policy.
+
+# v1.32.5 (2024-05-24)
+
+* **Documentation**: Documentation only updates for DynamoDB.
+
+# v1.32.4 (2024-05-23)
+
+* No change notes available for this release.
+
+# v1.32.3 (2024-05-16)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.32.2 (2024-05-15)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.32.1 (2024-05-08)
+
+* **Bug Fix**: GoDoc improvement
+
+# v1.32.0 (2024-05-02)
+
+* **Feature**: This release adds support to specify an optional, maximum OnDemandThroughput for DynamoDB tables and global secondary indexes in the CreateTable or UpdateTable APIs. You can also override the OnDemandThroughput settings by calling the ImportTable, RestoreFromPointInTime, or RestoreFromBackup APIs.
+
+# v1.31.1 (2024-03-29)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.31.0 (2024-03-20)
+
+* **Feature**: This release introduces 3 new APIs ('GetResourcePolicy', 'PutResourcePolicy' and 'DeleteResourcePolicy') and modifies the existing 'CreateTable' API for the resource-based policy support. It also modifies several APIs to accept a 'TableArn' for the 'TableName' parameter.
+
+# v1.30.5 (2024-03-18)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.30.4 (2024-03-07)
+
+* **Bug Fix**: Remove dependency on go-cmp.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.30.3 (2024-03-06)
+
+* **Documentation**: Doc only updates for DynamoDB documentation
+
+# v1.30.2 (2024-03-04)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
 # v1.30.1 (2024-02-23)
 
 * **Bug Fix**: Move all common, SDK-side middleware stack ops into the service client module to prevent cross-module compatibility issues in the future.
