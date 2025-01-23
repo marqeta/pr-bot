@@ -195,7 +195,7 @@ func setupThrottler(name string, keyer rate.Keyer, svc *prbot.Service,
 
 	log.Info().Msgf("Setting up %v Throttler", name)
 	cfgStoreName := name + "Config"
-	csDao := configstore.NewDynamoDao[*rate.LimiterConfig](svc.DDB)
+	csDao := configstore.NewDynamoDao[*rate.LimiterConfig](svc.DDB, svc.Metrics)
 	ticker := clockwork.NewRealClock().NewTicker(cfg.ConfigStore.Refresh)
 	configstore, err := configstore.NewDBStore(csDao, cfgStoreName,
 		cfg.ConfigStore.Table, ticker, svc.Metrics)
@@ -220,7 +220,7 @@ func setupThrottler(name string, keyer rate.Keyer, svc *prbot.Service,
 func setupEventFilters(svc *prbot.Service, cfg *prbot.Config, api gh.API) pullrequest.EventFilter {
 	log.Info().Msg("Setting up event filters")
 
-	csDao := configstore.NewDynamoDao[*pullrequest.RepoFilterCfg](svc.DDB)
+	csDao := configstore.NewDynamoDao[*pullrequest.RepoFilterCfg](svc.DDB, svc.Metrics)
 
 	ticker := clockwork.NewRealClock().NewTicker(cfg.ConfigStore.Refresh)
 	configstore, err := configstore.NewDBStore(csDao, "RepoFilterConfig",

@@ -55,9 +55,10 @@ func (d *dynamo[T]) GetItem(name string, table string) (T, error) {
 	return cfg, nil
 }
 
-func NewDynamoDao[T DynamicConfig](client *dynamodb.Client) Dao[T] {
+func NewDynamoDao[T DynamicConfig](client *dynamodb.Client, m metrics.Emitter) Dao[T] {
 	return &dynamo[T]{
-		client: client,
+		client:  client,
+		metrics: m,
 	}
 }
 
