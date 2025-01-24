@@ -34,7 +34,10 @@ type Service struct {
 }
 
 func NewService(cfg *Config) (*Service, error) {
-	awsConfig, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(cfg.AWS.Region))
+	//TODO enable account id endpoint mode, after updating firewall rules
+	// https://github.com/aws/aws-sdk-go-v2/issues/2807
+	awsConfig, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(cfg.AWS.Region),
+		config.WithAccountIDEndpointMode(aws.AccountIDEndpointModeDisabled))
 	if err != nil {
 		log.Err(err).Msg("unable to load SDK config")
 		return nil, err
