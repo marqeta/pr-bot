@@ -15,6 +15,8 @@ import (
 
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/configstore"
+	"github.com/marqeta/pr-bot/data"
+	"github.com/marqeta/pr-bot/datastore"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/healthcheck"
 	"github.com/marqeta/pr-bot/oci"
@@ -56,12 +58,19 @@ func main() {
 	endpoints := make([]prbot.Endpoint, 0)
 	endpoints = append(endpoints, webhookEndpoint(svc, cfg))
 	endpoints = append(endpoints, ui.NewEndpoint(svc.EvaluationManager, svc.Metrics))
+	endpoints = append(endpoints, dataEndpoint(svc))
 	svc.MountRoutes(healthcheck.NewEndpoint(svc.Metrics), endpoints)
 
 	srv := prbot.NewServer(cfg, svc.Router)
 	go srv.Start()
 	srv.WaitForGracefulShutdown()
 	svc.Close()
+}
+
+func dataEndpoint(svc *prbot.Service) prbot.Endpoint {
+	log.Info().Msg("Setting up data endpoint")
+	dao := datastore.NewDynamoDao(svc.DDB, svc.Metrics)
+	return data.NewEndpoint(dao, svc.Metrics)
 }
 
 func setUpOPAClient(cfg *prbot.Config) client.Client {
