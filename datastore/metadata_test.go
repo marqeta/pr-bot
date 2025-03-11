@@ -141,12 +141,6 @@ func negativeNumber() *store.Metadata {
 	return m
 }
 
-func randomService() *store.Metadata {
-	m := randomMetadata()
-	m.Service = "random"
-	return m
-}
-
 func emptyService() *store.Metadata {
 	m := randomMetadata()
 	m.Service = ""

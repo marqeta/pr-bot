@@ -17,7 +17,7 @@ type Response struct {
 	Message    string `json:"message,omitempty"`
 }
 
-func (e *Response) Render(w http.ResponseWriter, r *http.Request) error {
+func (e *Response) Render(_ http.ResponseWriter, r *http.Request) error {
 	render.Status(r, e.StatusCode)
 	return nil
 }
@@ -49,11 +49,10 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		oplog.Err(err).Msg("error storing payload")
 		pe.RenderError(w, r, err)
 		return
-	} else {
-		render.Render(w, r, &Response{
-			StatusCode: http.StatusOK,
-			RequestID:  reqID,
-			Message:    "payload stored successfully",
-		})
 	}
+	_ = render.Render(w, r, &Response{
+		StatusCode: http.StatusOK,
+		RequestID:  reqID,
+		Message:    "payload stored successfully",
+	})
 }
