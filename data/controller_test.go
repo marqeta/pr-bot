@@ -2,6 +2,7 @@ package data_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,10 +23,11 @@ import (
 )
 
 func Test_controller_HandleEvent(t *testing.T) {
+	//nolint:goerr113
 	randomErr := fmt.Errorf("random error")
 	payload := []byte(`{"key": "value"}`)
-	userErr := pe.UserError(nil, "error storing payload", randomErr)
-	serviceErr := pe.ServiceFault(nil, "internal server error", randomErr)
+	userErr := pe.UserError(context.TODO(), "error storing payload", randomErr)
+	serviceErr := pe.ServiceFault(context.TODO(), "internal server error", randomErr)
 
 	tests := []struct {
 		name            string
@@ -36,7 +38,7 @@ func Test_controller_HandleEvent(t *testing.T) {
 	}{
 		{
 			name: "should return 200 when storing payload",
-			setExpectations: func(dao *store.MockDao, r *http.Request) {
+			setExpectations: func(dao *store.MockDao, _ *http.Request) {
 				dao.EXPECT().ToMetadata(mock.Anything, mock.AnythingOfType("*http.Request")).
 					Return(randomMetadata(), nil).Once()
 				dao.EXPECT().StorePayload(mock.Anything, randomMetadata(), json.RawMessage(payload)).
@@ -58,7 +60,7 @@ func Test_controller_HandleEvent(t *testing.T) {
 		},
 		{
 			name: "should return 400 when user error occrs while storing payload",
-			setExpectations: func(dao *store.MockDao, req *http.Request) {
+			setExpectations: func(dao *store.MockDao, _ *http.Request) {
 				err := userErr
 				err.RequestID = "123C"
 				dao.EXPECT().ToMetadata(mock.Anything, mock.AnythingOfType("*http.Request")).
@@ -72,7 +74,7 @@ func Test_controller_HandleEvent(t *testing.T) {
 		},
 		{
 			name: "should return 500 when error occrs while storing payload",
-			setExpectations: func(dao *store.MockDao, req *http.Request) {
+			setExpectations: func(dao *store.MockDao, _ *http.Request) {
 				err := serviceErr
 				err.RequestID = "123D"
 				dao.EXPECT().ToMetadata(mock.Anything, mock.AnythingOfType("*http.Request")).

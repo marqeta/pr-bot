@@ -2,7 +2,6 @@ package datastore
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -41,7 +40,6 @@ func ToMetadata(r *http.Request) (*Metadata, error) {
 	head := r.URL.Query().Get("head")
 	base := r.URL.Query().Get("base")
 	job := r.URL.Query().Get("job")
-	fmt.Println(service)
 
 	if service == "" {
 		return nil, ErrInvalidService

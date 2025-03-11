@@ -31,14 +31,14 @@ func (d *dynamo) GetPayload(ctx context.Context, m *Metadata) (json.RawMessage, 
 }
 
 // StorePayload implements Dao
-func (d *dynamo) StorePayload(ctx context.Context, m *Metadata, payload json.RawMessage) error {
+func (d *dynamo) StorePayload(ctx context.Context, m *Metadata, _ json.RawMessage) error {
 	oplog := httplog.LogEntry(ctx)
 	oplog.Info().Interface("metadata", m).Msg("storing payload")
 	return nil
 }
 
 // ToMetadata implements Dao
-func (d *dynamo) ToMetadata(ctx context.Context, r *http.Request) (*Metadata, error) {
+func (d *dynamo) ToMetadata(_ context.Context, r *http.Request) (*Metadata, error) {
 	return ToMetadata(r)
 }
 
