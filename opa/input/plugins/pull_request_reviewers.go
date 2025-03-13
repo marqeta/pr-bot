@@ -27,7 +27,7 @@ func (prr *PullRequestReviewers) GetInputMsg(ctx context.Context, ghe input.GHE)
 
 // Name implements input.Plugin.
 func (prr *PullRequestReviewers) Name() string {
-	return "pull_request_reviewers"
+	return "reviews"
 }
 
 func NewPullRequestReviewers(dao gh.API) input.Plugin {
