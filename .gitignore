@@ -35,3 +35,6 @@ bundles/*
 
 # skip emacs org mode files
 *.org
+
+# ignore Intellij auto-generated folder
+.idea/

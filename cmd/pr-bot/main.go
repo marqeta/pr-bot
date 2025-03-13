@@ -106,7 +106,8 @@ func setUpInputFactory(api gh.API) input.Factory {
 	branchProtection := plugins.NewBranchProtection(api)
 	// 100KB size limit
 	filesChanged := plugins.NewFilesChanged(api, 100*1000)
-	return input.NewFactory(branchProtection, filesChanged)
+	pullRequestReviewers := plugins.NewPullRequestReviewers(api)
+	return input.NewFactory(branchProtection, filesChanged, pullRequestReviewers)
 }
 
 func setUpOPAPolicies(opaClient client.Client) opa.Policy {
