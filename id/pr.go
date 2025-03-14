@@ -6,13 +6,13 @@ import (
 )
 
 type PR struct {
-	Owner        string
-	Repo         string
-	Number       int
-	NodeID       string
-	RepoFullName string
-	Author       string
-	URL          string
+	Owner        string `json:"owner"`
+	Repo         string `json:"repo"`
+	Number       int    `json:"number"`
+	NodeID       string `json:"node_id,omitempty"`
+	RepoFullName string `json:"repo_full_name,omitempty"`
+	Author       string `json:"author,omitempty"`
+	URL          string `json:"url,omitempty"`
 }
 
 func (pr PR) ToTags() []string {

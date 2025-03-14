@@ -27,3 +27,6 @@ OPA:
 Reviewer:
   Locker:
     TableName: "pr-bot-dev-reviews-lock-table"
+Datastore:
+  Table: "pr-bot-dev-datastore"
+  TTL: 336h
