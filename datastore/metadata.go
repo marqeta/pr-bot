@@ -25,7 +25,7 @@ type Metadata struct {
 	Service string `json:"service"`
 	Head    string `json:"head"`
 	Base    string `json:"base"`
-	Job     string `json:"job,omitempty"`
+	Job     string `json:"job"`
 }
 
 func ToMetadata(r *http.Request) (*Metadata, error) {
