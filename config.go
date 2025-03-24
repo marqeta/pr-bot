@@ -67,6 +67,10 @@ type Config struct {
 		SortKey      string `yaml:"SortKey" env:"SORT_KEY"`
 		TTLFieldName string `yaml:"TTLFieldName" env:"TTL_FIELD_NAME"`
 	} `yaml:"Throttler" env-prefix:"THROTTLER_"`
+	Datastore struct {
+		Table string        `yaml:"Table" env:"TABLE"`
+		TTL   time.Duration `yaml:"TTL" env:"TTL"`
+	} `yaml:"Datastore" env-prefix:"DATASTORE_"`
 }
 
 func ParseConfigFiles() (*Config, error) {

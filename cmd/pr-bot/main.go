@@ -58,7 +58,7 @@ func main() {
 	endpoints := make([]prbot.Endpoint, 0)
 	endpoints = append(endpoints, webhookEndpoint(svc, cfg))
 	endpoints = append(endpoints, ui.NewEndpoint(svc.EvaluationManager, svc.Metrics))
-	endpoints = append(endpoints, dataEndpoint(svc))
+	endpoints = append(endpoints, dataEndpoint(svc, cfg))
 	svc.MountRoutes(healthcheck.NewEndpoint(svc.Metrics), endpoints)
 
 	srv := prbot.NewServer(cfg, svc.Router)
@@ -67,9 +67,9 @@ func main() {
 	svc.Close()
 }
 
-func dataEndpoint(svc *prbot.Service) prbot.Endpoint {
+func dataEndpoint(svc *prbot.Service, cfg *prbot.Config) prbot.Endpoint {
 	log.Info().Msg("Setting up data endpoint")
-	dao := datastore.NewDynamoDao(svc.DDB, svc.Metrics)
+	dao := datastore.NewDynamoDao(svc.DDB, svc.Metrics, cfg.Datastore.TTL, cfg.Datastore.Table)
 	return data.NewEndpoint(dao, svc.Metrics)
 }
 
