@@ -120,7 +120,7 @@ func Test_adapter_MetadataToGHE(t *testing.T) {
 			mockDAO := gh.NewMockAPI(t)
 			a := input.NewAdapter(mockDAO)
 			tt.setExpectations(mockDAO)
-			got, err := a.MetadataToGHE(ctx, tt.metadata)
+			got, err := a.MetadataToGHE(ctx, &tt.metadata)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("adapter.MetadataToGHE() error = %v, wantErr %v", err, tt.wantErr)
 				return

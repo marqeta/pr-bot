@@ -55,10 +55,13 @@ func main() {
 
 	downloadOCIArtifacts(svc, cfg)
 
+	ghAPI := setupGHAPI(svc, cfg)
+	eventHandler := setupEventHandler(svc, cfg, ghAPI)
+
 	endpoints := make([]prbot.Endpoint, 0)
-	endpoints = append(endpoints, webhookEndpoint(svc, cfg))
+	endpoints = append(endpoints, webhookEndpoint(svc, cfg, ghAPI, eventHandler))
 	endpoints = append(endpoints, ui.NewEndpoint(svc.EvaluationManager, svc.Metrics))
-	endpoints = append(endpoints, dataEndpoint(svc, cfg))
+	endpoints = append(endpoints, dataEndpoint(svc, cfg, eventHandler))
 	svc.MountRoutes(healthcheck.NewEndpoint(svc.Metrics), endpoints)
 
 	srv := prbot.NewServer(cfg, svc.Router)
@@ -67,10 +70,10 @@ func main() {
 	svc.Close()
 }
 
-func dataEndpoint(svc *prbot.Service, cfg *prbot.Config) prbot.Endpoint {
+func dataEndpoint(svc *prbot.Service, cfg *prbot.Config, eh pullrequest.EventHandler) prbot.Endpoint {
 	log.Info().Msg("Setting up data endpoint")
 	dao := datastore.NewDynamoDao(svc.DDB, svc.Metrics, cfg.Datastore.TTL, cfg.Datastore.Table)
-	return data.NewEndpoint(dao, svc.Metrics)
+	return data.NewEndpoint(dao, svc.Metrics, eh)
 }
 
 func setUpOPAClient(cfg *prbot.Config) client.Client {
@@ -173,23 +176,33 @@ func setupReviewer(svc *prbot.Service, cfg *prbot.Config, api gh.API) review.Rev
 	return review.NewMutexReviewer(dedup, locker)
 }
 
-func webhookEndpoint(svc *prbot.Service, cfg *prbot.Config) prbot.Endpoint {
+func webhookEndpoint(svc *prbot.Service, cfg *prbot.Config, api gh.API, handler pullrequest.EventHandler) prbot.Endpoint {
 	log.Info().Msg("Setting up webhook endpoint")
 	ws, err := svc.Secrets.GetSecret(context.Background(), cfg.AWS.Secrets.Webhook)
 	if err != nil {
 		log.Err(err).Msg("Error retrieving webhook secret")
 		os.Exit(1)
 	}
-	v3, v4 := setupGHEClients(svc.Secrets, cfg)
-	prDao := gh.NewAPI(cfg.Server.Host, cfg.Server.Port, v3, v4, svc.Metrics)
-	filter := setupEventFilters(svc, cfg, prDao)
-	opaEvaluator := setUpOPAEvaluator(prDao, cfg, svc)
-	reviewer := setupReviewer(svc, cfg, prDao)
-
-	handlerV2 := pullrequest.NewEventHandler(opaEvaluator, reviewer, svc.Metrics)
-	d := pullrequest.NewDispatcher(handlerV2, filter, svc.Metrics)
+	filter := setupEventFilters(svc, cfg, api)
+	d := pullrequest.NewDispatcher(handler, filter, svc.Metrics)
 	p := webhook.NewGHEventsParser()
 	return webhook.NewEndpoint(ws, p, d, svc.Metrics)
+}
+
+func setupGHAPI(svc *prbot.Service, cfg *prbot.Config) gh.API {
+	v3, v4 := setupGHEClients(svc.Secrets, cfg)
+	prDao := gh.NewAPI(cfg.Server.Host, cfg.Server.Port, v3, v4, svc.Metrics)
+	return prDao
+}
+
+func setupEventHandler(svc *prbot.Service, cfg *prbot.Config, api gh.API) pullrequest.EventHandler {
+	log.Info().Msg("Setting up event handler")
+	opaEvaluator := setUpOPAEvaluator(api, cfg, svc)
+	reviewer := setupReviewer(svc, cfg, api)
+	adapter := input.NewAdapter(api)
+
+	handler := pullrequest.NewEventHandler(opaEvaluator, reviewer, svc.Metrics, adapter)
+	return handler
 }
 
 func setupThrottlers(svc *prbot.Service, cfg *prbot.Config) rate.Throttler {

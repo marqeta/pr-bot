@@ -116,7 +116,7 @@ func (d *dispatcher) Dispatch(ctx context.Context, _ string, eventName string, e
 	case ReopenedAction, EditedAction, LabeledAction,
 		UnlabeledAction, ReviewRequested, ReviewRequestRemoved,
 		AssignedAction, UnassignedAction, SynchronizeAction:
-		return d.handler.EvalAndReview(ctx, id, event)
+		return d.handler.EvalAndReviewPREvent(ctx, id, event)
 
 	default:
 		oplog.Info().Msgf("No Handlers registered for Event: %s and Action: %s", eventName, action)

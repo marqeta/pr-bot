@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/httplog"
 	"github.com/google/go-github/v50/github"
+	"github.com/marqeta/pr-bot/datastore"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/opa"
@@ -14,29 +15,57 @@ import (
 	"github.com/shurcooL/githubv4"
 )
 
-//go:generate mockery --name EventHandler --testonly
+//go:generate mockery --name EventHandler
 type EventHandler interface {
-	EvalAndReview(ctx context.Context, id id.PR, event *github.PullRequestEvent) error
+	EvalAndReview(ctx context.Context, id id.PR, ghe input.GHE) error
+	EvalAndReviewPREvent(ctx context.Context, id id.PR, event *github.PullRequestEvent) error
+	EvalAndReviewPRReviewEvent(ctx context.Context, id id.PR, event *github.PullRequestReviewEvent) error
+	EvalAndReviewDataEvent(ctx context.Context, id id.PR, metadata *datastore.Metadata) error
 }
 
 type eventHandler struct {
 	reviewer  review.Reviewer
 	metrics   metrics.Emitter
 	evaluator opa.Evaluator
+	adapter   input.Adapter
 }
 
-func NewEventHandler(evaluator opa.Evaluator, reviewer review.Reviewer, metrics metrics.Emitter) EventHandler {
+func NewEventHandler(evaluator opa.Evaluator, reviewer review.Reviewer, metrics metrics.Emitter, adapter input.Adapter) EventHandler {
 	return &eventHandler{
 		reviewer:  reviewer,
 		metrics:   metrics,
 		evaluator: evaluator,
+		adapter:   adapter,
 	}
 }
 
-func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, event *github.PullRequestEvent) error {
+func (eh *eventHandler) EvalAndReviewDataEvent(ctx context.Context, id id.PR, metadata *datastore.Metadata) error {
+	ghe, err := eh.adapter.MetadataToGHE(ctx, metadata)
+	if err != nil {
+		return err
+	}
+	return eh.EvalAndReview(ctx, id, ghe)
+}
+
+func (eh *eventHandler) EvalAndReviewPREvent(ctx context.Context, id id.PR, event *github.PullRequestEvent) error {
+	ghe, err := eh.adapter.PREventToGHE(ctx, event)
+	if err != nil {
+		return err
+	}
+	return eh.EvalAndReview(ctx, id, ghe)
+}
+
+func (eh *eventHandler) EvalAndReviewPRReviewEvent(ctx context.Context, id id.PR, event *github.PullRequestReviewEvent) error {
+	ghe, err := eh.adapter.PRReviewEventToGHE(ctx, event)
+	if err != nil {
+		return err
+	}
+	return eh.EvalAndReview(ctx, id, ghe)
+}
+
+func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, ghe input.GHE) error {
 	oplog := httplog.LogEntry(ctx)
 
-	ghe := input.ToGHE(event)
 	tags := id.ToTags()
 	opaResult, err := eh.evaluator.Evaluate(ctx, ghe)
 	oplog.Err(err).Interface("decision", opaResult).Msg("opa evaluation complete")
@@ -54,9 +83,9 @@ func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, event *gith
 
 	case types.Approve:
 		return eh.reviewer.Approve(ctx, id, opaResult.Review.Body, review.ApproveOptions{
-			AutoMergeEnabled: event.GetPullRequest().GetBase().GetRepo().GetAllowAutoMerge(),
-			DefaultBranch:    event.Repo.GetDefaultBranch(),
-			MergeMethod:      mergeMethod(event),
+			AutoMergeEnabled: ghe.PullRequest.GetBase().GetRepo().GetAllowAutoMerge(),
+			DefaultBranch:    ghe.Repository.GetDefaultBranch(),
+			MergeMethod:      mergeMethod(ghe),
 		})
 	case types.RequestChanges:
 		return eh.reviewer.RequestChanges(ctx, id, opaResult.Review.Body)
@@ -68,10 +97,10 @@ func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, event *gith
 	return nil
 }
 
-func mergeMethod(event *github.PullRequestEvent) githubv4.PullRequestMergeMethod {
-	rebase := event.PullRequest.GetBase().GetRepo().GetAllowRebaseMerge()
-	squash := event.PullRequest.GetBase().GetRepo().GetAllowSquashMerge()
-	fc := event.PullRequest.GetChangedFiles()
+func mergeMethod(ghe input.GHE) githubv4.PullRequestMergeMethod {
+	rebase := ghe.PullRequest.GetBase().GetRepo().GetAllowRebaseMerge()
+	squash := ghe.PullRequest.GetBase().GetRepo().GetAllowSquashMerge()
+	fc := ghe.PullRequest.GetChangedFiles()
 	// TODO: let policy specify what merge method to use.
 	// when rebasing empty commits on to main,
 	// no new commit is created, therefore no triggers would be fired.
