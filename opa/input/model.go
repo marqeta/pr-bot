@@ -35,13 +35,3 @@ func (ghe GHE) ToID() id.PR {
 		Author:       aws.ToString(ghe.PullRequest.User.Login),
 	}
 }
-
-func ToGHE(event *github.PullRequestEvent) GHE {
-	return GHE{
-		Event:        "pull_request",
-		Action:       event.GetAction(),
-		PullRequest:  event.GetPullRequest(),
-		Repository:   event.GetRepo(),
-		Organization: event.GetOrganization(),
-	}
-}

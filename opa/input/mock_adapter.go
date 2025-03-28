@@ -25,7 +25,7 @@ func (_m *MockAdapter) EXPECT() *MockAdapter_Expecter {
 }
 
 // MetadataToGHE provides a mock function with given fields: ctx, metadata
-func (_m *MockAdapter) MetadataToGHE(ctx context.Context, metadata datastore.Metadata) (GHE, error) {
+func (_m *MockAdapter) MetadataToGHE(ctx context.Context, metadata *datastore.Metadata) (GHE, error) {
 	ret := _m.Called(ctx, metadata)
 
 	if len(ret) == 0 {
@@ -34,16 +34,16 @@ func (_m *MockAdapter) MetadataToGHE(ctx context.Context, metadata datastore.Met
 
 	var r0 GHE
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, datastore.Metadata) (GHE, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *datastore.Metadata) (GHE, error)); ok {
 		return rf(ctx, metadata)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, datastore.Metadata) GHE); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *datastore.Metadata) GHE); ok {
 		r0 = rf(ctx, metadata)
 	} else {
 		r0 = ret.Get(0).(GHE)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, datastore.Metadata) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *datastore.Metadata) error); ok {
 		r1 = rf(ctx, metadata)
 	} else {
 		r1 = ret.Error(1)
@@ -59,14 +59,14 @@ type MockAdapter_MetadataToGHE_Call struct {
 
 // MetadataToGHE is a helper method to define mock.On call
 //   - ctx context.Context
-//   - metadata datastore.Metadata
+//   - metadata *datastore.Metadata
 func (_e *MockAdapter_Expecter) MetadataToGHE(ctx interface{}, metadata interface{}) *MockAdapter_MetadataToGHE_Call {
 	return &MockAdapter_MetadataToGHE_Call{Call: _e.mock.On("MetadataToGHE", ctx, metadata)}
 }
 
-func (_c *MockAdapter_MetadataToGHE_Call) Run(run func(ctx context.Context, metadata datastore.Metadata)) *MockAdapter_MetadataToGHE_Call {
+func (_c *MockAdapter_MetadataToGHE_Call) Run(run func(ctx context.Context, metadata *datastore.Metadata)) *MockAdapter_MetadataToGHE_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(datastore.Metadata))
+		run(args[0].(context.Context), args[1].(*datastore.Metadata))
 	})
 	return _c
 }
@@ -76,7 +76,7 @@ func (_c *MockAdapter_MetadataToGHE_Call) Return(_a0 GHE, _a1 error) *MockAdapte
 	return _c
 }
 
-func (_c *MockAdapter_MetadataToGHE_Call) RunAndReturn(run func(context.Context, datastore.Metadata) (GHE, error)) *MockAdapter_MetadataToGHE_Call {
+func (_c *MockAdapter_MetadataToGHE_Call) RunAndReturn(run func(context.Context, *datastore.Metadata) (GHE, error)) *MockAdapter_MetadataToGHE_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -40,7 +40,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -54,7 +54,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -68,7 +68,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -82,7 +82,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -96,7 +96,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -110,7 +110,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -124,7 +124,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -138,7 +138,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -152,7 +152,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -166,7 +166,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -180,7 +180,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(nil).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -259,7 +259,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(errRandom).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(errRandom).Once()
 			},
 			wantErr: errRandom,
 		},
@@ -273,7 +273,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(errRandom).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(errRandom).Once()
 			},
 			wantErr: errRandom,
 		},
@@ -287,7 +287,7 @@ func Test_dispatcher_Dispatch(t *testing.T) {
 			setExpectations: func(id id.PR, event *github.PullRequestEvent,
 				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
 				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
-				h.EXPECT().EvalAndReview(ctx, id, event).Return(errRandom).Once()
+				h.EXPECT().EvalAndReviewPREvent(ctx, id, event).Return(errRandom).Once()
 			},
 			wantErr: errRandom,
 		},

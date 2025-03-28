@@ -11,7 +11,7 @@ import (
 //go:generate mockery --name Adapter
 type Adapter interface {
 	PREventToGHE(ctx context.Context, event *github.PullRequestEvent) (GHE, error)
-	MetadataToGHE(ctx context.Context, metadata datastore.Metadata) (GHE, error)
+	MetadataToGHE(ctx context.Context, metadata *datastore.Metadata) (GHE, error)
 	PRReviewEventToGHE(ctx context.Context, event *github.PullRequestReviewEvent) (GHE, error)
 }
 
@@ -33,7 +33,7 @@ func (a *adapter) PREventToGHE(_ context.Context, event *github.PullRequestEvent
 	}, nil
 }
 
-func (a *adapter) MetadataToGHE(ctx context.Context, metadata datastore.Metadata) (GHE, error) {
+func (a *adapter) MetadataToGHE(ctx context.Context, metadata *datastore.Metadata) (GHE, error) {
 	org, err := a.dao.GetOrganization(ctx, metadata.PR)
 	if err != nil {
 		return GHE{}, err

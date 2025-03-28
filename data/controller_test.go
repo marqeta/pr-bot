@@ -18,6 +18,7 @@ import (
 	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
+	"github.com/marqeta/pr-bot/pullrequest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -90,7 +91,8 @@ func Test_controller_HandleEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dao := store.NewMockDao(t)
-			e := data.NewEndpoint(dao, metrics.NewNoopEmitter())
+			eh := pullrequest.NewMockEventHandler(t)
+			e := data.NewEndpoint(dao, metrics.NewNoopEmitter(), eh)
 
 			req := NewRequest(t, tt.requestID, randomMetadata(), payload)
 			tt.setExpectations(dao, req)
