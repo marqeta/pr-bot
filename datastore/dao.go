@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/httplog"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -49,8 +50,9 @@ func (d *dynamo) GetPayload(ctx context.Context, m *Metadata) (json.RawMessage, 
 	}
 
 	input := &dynamodb.GetItemInput{
-		Key:       key,
-		TableName: &d.table,
+		Key:            key,
+		TableName:      &d.table,
+		ConsistentRead: aws.Bool(true),
 	}
 	resp, err := d.client.GetItem(ctx, input)
 	if err != nil {
