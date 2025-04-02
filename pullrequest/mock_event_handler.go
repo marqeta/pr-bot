@@ -76,17 +76,17 @@ func (_c *MockEventHandler_EvalAndReview_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// EvalAndReviewDataEvent provides a mock function with given fields: ctx, _a1, metadata
-func (_m *MockEventHandler) EvalAndReviewDataEvent(ctx context.Context, _a1 id.PR, metadata *datastore.Metadata) error {
-	ret := _m.Called(ctx, _a1, metadata)
+// EvalAndReviewDataEvent provides a mock function with given fields: ctx, metadata
+func (_m *MockEventHandler) EvalAndReviewDataEvent(ctx context.Context, metadata *datastore.Metadata) error {
+	ret := _m.Called(ctx, metadata)
 
 	if len(ret) == 0 {
 		panic("no return value specified for EvalAndReviewDataEvent")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, id.PR, *datastore.Metadata) error); ok {
-		r0 = rf(ctx, _a1, metadata)
+	if rf, ok := ret.Get(0).(func(context.Context, *datastore.Metadata) error); ok {
+		r0 = rf(ctx, metadata)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -101,15 +101,14 @@ type MockEventHandler_EvalAndReviewDataEvent_Call struct {
 
 // EvalAndReviewDataEvent is a helper method to define mock.On call
 //   - ctx context.Context
-//   - _a1 id.PR
 //   - metadata *datastore.Metadata
-func (_e *MockEventHandler_Expecter) EvalAndReviewDataEvent(ctx interface{}, _a1 interface{}, metadata interface{}) *MockEventHandler_EvalAndReviewDataEvent_Call {
-	return &MockEventHandler_EvalAndReviewDataEvent_Call{Call: _e.mock.On("EvalAndReviewDataEvent", ctx, _a1, metadata)}
+func (_e *MockEventHandler_Expecter) EvalAndReviewDataEvent(ctx interface{}, metadata interface{}) *MockEventHandler_EvalAndReviewDataEvent_Call {
+	return &MockEventHandler_EvalAndReviewDataEvent_Call{Call: _e.mock.On("EvalAndReviewDataEvent", ctx, metadata)}
 }
 
-func (_c *MockEventHandler_EvalAndReviewDataEvent_Call) Run(run func(ctx context.Context, _a1 id.PR, metadata *datastore.Metadata)) *MockEventHandler_EvalAndReviewDataEvent_Call {
+func (_c *MockEventHandler_EvalAndReviewDataEvent_Call) Run(run func(ctx context.Context, metadata *datastore.Metadata)) *MockEventHandler_EvalAndReviewDataEvent_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(id.PR), args[2].(*datastore.Metadata))
+		run(args[0].(context.Context), args[1].(*datastore.Metadata))
 	})
 	return _c
 }
@@ -119,7 +118,7 @@ func (_c *MockEventHandler_EvalAndReviewDataEvent_Call) Return(_a0 error) *MockE
 	return _c
 }
 
-func (_c *MockEventHandler_EvalAndReviewDataEvent_Call) RunAndReturn(run func(context.Context, id.PR, *datastore.Metadata) error) *MockEventHandler_EvalAndReviewDataEvent_Call {
+func (_c *MockEventHandler_EvalAndReviewDataEvent_Call) RunAndReturn(run func(context.Context, *datastore.Metadata) error) *MockEventHandler_EvalAndReviewDataEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }

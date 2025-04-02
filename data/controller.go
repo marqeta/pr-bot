@@ -50,6 +50,14 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		pe.RenderError(w, r, err)
 		return
 	}
+
+	err = c.handler.EvalAndReviewDataEvent(ctx, metadata)
+	if err != nil {
+		// handle evaluation error
+		oplog.Err(err).Msg("error evaluating polciies during data event")
+		pe.RenderError(w, r, err)
+		return
+	}
 	_ = render.Render(w, r, &Response{
 		StatusCode: http.StatusOK,
 		RequestID:  reqID,

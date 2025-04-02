@@ -20,7 +20,7 @@ type EventHandler interface {
 	EvalAndReview(ctx context.Context, id id.PR, ghe input.GHE) error
 	EvalAndReviewPREvent(ctx context.Context, id id.PR, event *github.PullRequestEvent) error
 	EvalAndReviewPRReviewEvent(ctx context.Context, id id.PR, event *github.PullRequestReviewEvent) error
-	EvalAndReviewDataEvent(ctx context.Context, id id.PR, metadata *datastore.Metadata) error
+	EvalAndReviewDataEvent(ctx context.Context, metadata *datastore.Metadata) error
 }
 
 type eventHandler struct {
@@ -39,12 +39,12 @@ func NewEventHandler(evaluator opa.Evaluator, reviewer review.Reviewer, metrics 
 	}
 }
 
-func (eh *eventHandler) EvalAndReviewDataEvent(ctx context.Context, id id.PR, metadata *datastore.Metadata) error {
+func (eh *eventHandler) EvalAndReviewDataEvent(ctx context.Context, metadata *datastore.Metadata) error {
 	ghe, err := eh.adapter.MetadataToGHE(ctx, metadata)
 	if err != nil {
 		return err
 	}
-	return eh.EvalAndReview(ctx, id, ghe)
+	return eh.EvalAndReview(ctx, ghe.ToID(), ghe)
 }
 
 func (eh *eventHandler) EvalAndReviewPREvent(ctx context.Context, id id.PR, event *github.PullRequestEvent) error {
