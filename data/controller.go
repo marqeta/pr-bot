@@ -5,10 +5,12 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
 	"github.com/go-chi/httplog"
 	"github.com/go-chi/render"
 	pe "github.com/marqeta/pr-bot/errors"
+	"github.com/marqeta/pr-bot/opa/evaluation"
 )
 
 type Response struct {
@@ -24,8 +26,9 @@ func (e *Response) Render(_ http.ResponseWriter, r *http.Request) error {
 
 func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	oplog := httplog.LogEntry(ctx)
 	reqID := middleware.GetReqID(ctx)
+	ctx = evaluation.SetDeliveryID(r.Context(), uuid.NewString())
+	oplog := httplog.LogEntry(ctx)
 
 	// do auth verification
 	// TODO SigV4 verification for presigned get-caller-identity request
