@@ -23,11 +23,11 @@ var errRandom = errors.New("random error")
 
 func Test_controller_HandleEvent(t *testing.T) {
 	type args struct {
-		requestID      string
-		deliveryID     string
-		eventName      string
-		event          any
-		webhookSecrect string
+		requestID     string
+		deliveryID    string
+		eventName     string
+		event         any
+		webhookSecret string
 	}
 	type mockArgs struct {
 		ValidatePayloadErr error
@@ -43,22 +43,22 @@ func Test_controller_HandleEvent(t *testing.T) {
 		{
 			name: "should successfully handle pull request event",
 			args: args{
-				requestID:      "request1",
-				deliveryID:     "delivery1",
-				eventName:      pullrequest.EventName,
-				event:          &github.PullRequestEvent{},
-				webhookSecrect: "random secret",
+				requestID:     "request1",
+				deliveryID:    "delivery1",
+				eventName:     pullrequest.EventName,
+				event:         &github.PullRequestEvent{},
+				webhookSecret: "random secret",
 			},
 			wantCode: http.StatusAccepted,
 		},
 		{
 			name: "should handle error from dispatcher",
 			args: args{
-				requestID:      "request1",
-				deliveryID:     "",
-				eventName:      pullrequest.EventName,
-				event:          &github.PullRequestEvent{},
-				webhookSecrect: "random secret",
+				requestID:     "request1",
+				deliveryID:    "",
+				eventName:     pullrequest.EventName,
+				event:         &github.PullRequestEvent{},
+				webhookSecret: "random secret",
 			},
 			mockArgs: mockArgs{
 				ValidatePayloadErr: nil,
@@ -70,11 +70,11 @@ func Test_controller_HandleEvent(t *testing.T) {
 		{
 			name: "should handle ParseWebHook error",
 			args: args{
-				requestID:      "request1",
-				deliveryID:     "",
-				eventName:      pullrequest.EventName,
-				event:          &github.PullRequestEvent{},
-				webhookSecrect: "random secret",
+				requestID:     "request1",
+				deliveryID:    "",
+				eventName:     pullrequest.EventName,
+				event:         &github.PullRequestEvent{},
+				webhookSecret: "random secret",
 			},
 			mockArgs: mockArgs{
 				ValidatePayloadErr: nil,
@@ -86,11 +86,11 @@ func Test_controller_HandleEvent(t *testing.T) {
 		{
 			name: "should handle validatePayload error",
 			args: args{
-				requestID:      "request1",
-				deliveryID:     "",
-				eventName:      pullrequest.EventName,
-				event:          &github.PullRequestEvent{},
-				webhookSecrect: "random secret",
+				requestID:     "request1",
+				deliveryID:    "",
+				eventName:     pullrequest.EventName,
+				event:         &github.PullRequestEvent{},
+				webhookSecret: "random secret",
 			},
 			mockArgs: mockArgs{
 				ValidatePayloadErr: errRandom,
@@ -104,11 +104,11 @@ func Test_controller_HandleEvent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := webhook.NewMockParser(t)
 			dispatcher := pullrequest.NewMockDispatcher(t)
-			e := webhook.NewEndpoint(tt.args.webhookSecrect, parser, dispatcher, metrics.NewNoopEmitter())
+			e := webhook.NewEndpoint(tt.args.webhookSecret, parser, dispatcher, metrics.NewNoopEmitter())
 
 			req, payload := NewRequest(t, tt.args.requestID, tt.args.deliveryID, tt.args.eventName, tt.args.event)
 
-			parser.EXPECT().ValidatePayload(mock.AnythingOfType("*http.Request"), []byte(tt.args.webhookSecrect)).
+			parser.EXPECT().ValidatePayload(mock.AnythingOfType("*http.Request"), []byte(tt.args.webhookSecret)).
 				Return(payload, tt.mockArgs.ValidatePayloadErr).Once()
 			if tt.mockArgs.ValidatePayloadErr == nil {
 				parser.EXPECT().ParseWebHook(tt.args.eventName, payload).
@@ -116,6 +116,117 @@ func Test_controller_HandleEvent(t *testing.T) {
 			}
 			if tt.mockArgs.ParseWebHookErr == nil && tt.mockArgs.ValidatePayloadErr == nil {
 				dispatcher.EXPECT().Dispatch(mock.Anything, tt.args.deliveryID, tt.args.eventName, tt.args.event).
+					Return(tt.mockArgs.DipatchErr).Once()
+			}
+
+			res := executeRequest(req, e)
+
+			assert.Equal(t, tt.wantCode, res.Code)
+
+			var wantRes webhook.EventResponse
+			err := json.Unmarshal(res.Body.Bytes(), &wantRes)
+			assert.Nil(t, err, "error when unmarshalling response")
+			assert.Equal(t, tt.args.deliveryID, wantRes.DeliveryID)
+			assert.Equal(t, tt.args.requestID, wantRes.RequestID)
+		})
+	}
+}
+
+func Test_controller_HandleReviewEvent(t *testing.T) {
+	type args struct {
+		requestID     string
+		deliveryID    string
+		eventName     string
+		event         any
+		webhookSecret string
+	}
+	type mockArgs struct {
+		ValidatePayloadErr error
+		ParseWebHookErr    error
+		DipatchErr         error
+	}
+	tests := []struct {
+		name     string
+		args     args
+		mockArgs mockArgs
+		wantCode int
+	}{
+		{
+			name: "should successfully handle pull request review event",
+			args: args{
+				requestID:     "request1",
+				deliveryID:    "delivery1",
+				eventName:     pullrequest.EventNameReview,
+				event:         &github.PullRequestReviewEvent{},
+				webhookSecret: "random secret",
+			},
+			wantCode: http.StatusAccepted,
+		},
+		{
+			name: "should handle error from review dispatcher",
+			args: args{
+				requestID:     "request1",
+				deliveryID:    "",
+				eventName:     pullrequest.EventNameReview,
+				event:         &github.PullRequestReviewEvent{},
+				webhookSecret: "random secret",
+			},
+			mockArgs: mockArgs{
+				ValidatePayloadErr: nil,
+				ParseWebHookErr:    nil,
+				DipatchErr:         errRandom,
+			},
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name: "should handle ParseWebHook error for review event",
+			args: args{
+				requestID:     "request1",
+				deliveryID:    "",
+				eventName:     pullrequest.EventNameReview,
+				event:         &github.PullRequestReviewEvent{},
+				webhookSecret: "random secret",
+			},
+			mockArgs: mockArgs{
+				ValidatePayloadErr: nil,
+				ParseWebHookErr:    errRandom,
+				DipatchErr:         nil,
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "should handle validate Payload error for review events",
+			args: args{
+				requestID:     "request1",
+				deliveryID:    "",
+				eventName:     pullrequest.EventNameReview,
+				event:         &github.PullRequestReviewEvent{},
+				webhookSecret: "random secret",
+			},
+			mockArgs: mockArgs{
+				ValidatePayloadErr: errRandom,
+				ParseWebHookErr:    nil,
+				DipatchErr:         nil,
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := webhook.NewMockParser(t)
+			dispatcher := pullrequest.NewMockDispatcher(t)
+			e := webhook.NewEndpoint(tt.args.webhookSecret, parser, dispatcher, metrics.NewNoopEmitter())
+
+			req, payload := NewRequest(t, tt.args.requestID, tt.args.deliveryID, tt.args.eventName, tt.args.event)
+
+			parser.EXPECT().ValidatePayload(mock.AnythingOfType("*http.Request"), []byte(tt.args.webhookSecret)).
+				Return(payload, tt.mockArgs.ValidatePayloadErr).Once()
+			if tt.mockArgs.ValidatePayloadErr == nil {
+				parser.EXPECT().ParseWebHook(tt.args.eventName, payload).
+					Return(tt.args.event, tt.mockArgs.ParseWebHookErr).Once()
+			}
+			if tt.mockArgs.ParseWebHookErr == nil && tt.mockArgs.ValidatePayloadErr == nil {
+				dispatcher.EXPECT().DispatchReview(mock.Anything, tt.args.deliveryID, tt.args.eventName, tt.args.event).
 					Return(tt.mockArgs.DipatchErr).Once()
 			}
 

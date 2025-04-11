@@ -16,6 +16,7 @@ import (
 
 var ErrEventActionNotFound = errors.New("event action was empty or nil")
 var ErrMismatchedEvent = errors.New("expected pull_request event")
+var ErrMismatchedReviewEvent = errors.New("expected pull_request_review event")
 var ErrLabelNotFound = errors.New("pull_request.Label was nil")
 var ErrPRNotFound = errors.New("event.pull_request was nil")
 
@@ -23,6 +24,9 @@ var ErrPRNotFound = errors.New("event.pull_request was nil")
 const (
 	// EventName is the event name of github.EventName's
 	EventName = "pull_request"
+
+	// EventNameReview is the event name of github.EventName's
+	EventNameReview = "pull_request_review"
 
 	OpenedAction         = "opened"
 	ReopenedAction       = "reopened"
@@ -34,11 +38,13 @@ const (
 	AssignedAction       = "assigned"
 	UnassignedAction     = "unassigned"
 	SynchronizeAction    = "synchronize"
+	SubmittedAction      = "submitted"
 )
 
 //go:generate mockery --name Dispatcher
 type Dispatcher interface {
 	Dispatch(ctx context.Context, deliveryID string, eventName string, event *github.PullRequestEvent) error
+	DispatchReview(ctx context.Context, deliveryID string, eventName string, event *github.PullRequestReviewEvent) error
 }
 
 type dispatcher struct {
@@ -116,7 +122,69 @@ func (d *dispatcher) Dispatch(ctx context.Context, _ string, eventName string, e
 	case ReopenedAction, EditedAction, LabeledAction,
 		UnlabeledAction, ReviewRequested, ReviewRequestRemoved,
 		AssignedAction, UnassignedAction, SynchronizeAction:
-		return d.handler.EvalAndReview(ctx, id, event)
+		return d.handler.EvalAndReviewPREvent(ctx, id, event)
+
+	default:
+		oplog.Info().Msgf("No Handlers registered for Event: %s and Action: %s", eventName, action)
+	}
+
+	return nil
+}
+
+func (d *dispatcher) DispatchReview(ctx context.Context, _ string, eventName string, event *github.PullRequestReviewEvent) error {
+	oplog := httplog.LogEntry(ctx)
+	var err error
+
+	if eventName != EventNameReview {
+		oplog.Err(ErrMismatchedReviewEvent).Send()
+		return parseError(ctx, ErrMismatchedReviewEvent)
+	}
+
+	if event == nil || event.Action == nil || len(*event.Action) == 0 {
+		oplog.Err(ErrEventActionNotFound).Send()
+		return parseError(ctx, ErrEventActionNotFound)
+	}
+
+	if event.PullRequest == nil {
+		oplog.Err(ErrPRNotFound).Send()
+		return parseError(ctx, ErrPRNotFound)
+	}
+
+	visibility := aws.ToString(event.Repo.Visibility)
+	if visibility != "public" {
+		return nil
+	}
+
+	action := *event.Action
+	httplog.LogEntrySetField(ctx, "action", action)
+	httplog.LogEntrySetField(ctx, "repo", *event.Repo.FullName)
+	httplog.LogEntrySetField(ctx, "pr", fmt.Sprint(*event.PullRequest.Number))
+	oplog = httplog.LogEntry(ctx)
+
+	id := id.PR{
+		Owner:        *event.Repo.Owner.Login,
+		Repo:         *event.Repo.Name,
+		Number:       *event.PullRequest.Number,
+		NodeID:       *event.PullRequest.NodeID,
+		RepoFullName: *event.Repo.FullName,
+		Author:       *event.PullRequest.User.Login,
+		URL:          *event.PullRequest.HTMLURL,
+	}
+
+	shouldHandle, err := d.filter.ShouldHandle(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if !shouldHandle {
+		d.metrics.EmitDist(ctx, "ignoredRepos", 1, id.ToTags())
+		return nil
+	}
+
+	switch action {
+
+	case SubmittedAction:
+		return d.handler.EvalAndReviewPRReviewEvent(ctx, id, event)
 
 	default:
 		oplog.Info().Msgf("No Handlers registered for Event: %s and Action: %s", eventName, action)
