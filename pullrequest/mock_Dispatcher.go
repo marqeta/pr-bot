@@ -40,8 +40,31 @@ func (_m *MockDispatcher) Dispatch(ctx context.Context, deliveryID string, event
 	return r0
 }
 
+// D provides a mock function with given fields: ctx, deliveryID, eventName, event
+func (_m *MockDispatcher) DispatchReview(ctx context.Context, deliveryID string, eventName string, event *github.PullRequestReviewEvent) error {
+	ret := _m.Called(ctx, deliveryID, eventName, event)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Dispatch")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *github.PullRequestReviewEvent) error); ok {
+		r0 = rf(ctx, deliveryID, eventName, event)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // MockDispatcher_Dispatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Dispatch'
 type MockDispatcher_Dispatch_Call struct {
+	*mock.Call
+}
+
+// MockDispatcher_DispatchReview_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DispatchReview'
+type MockDispatcher_DispatchReview_Call struct {
 	*mock.Call
 }
 
@@ -52,6 +75,32 @@ type MockDispatcher_Dispatch_Call struct {
 //   - event *github.PullRequestEvent
 func (_e *MockDispatcher_Expecter) Dispatch(ctx interface{}, deliveryID interface{}, eventName interface{}, event interface{}) *MockDispatcher_Dispatch_Call {
 	return &MockDispatcher_Dispatch_Call{Call: _e.mock.On("Dispatch", ctx, deliveryID, eventName, event)}
+}
+
+// DispatchReview is a helper method to define mock.On call
+//   - ctx context.Context
+//   - deliveryID string
+//   - eventName string
+//   - event *github.PullRequestReviewEvent
+func (_e *MockDispatcher_Expecter) DispatchReview(ctx interface{}, deliveryID interface{}, eventName interface{}, event interface{}) *MockDispatcher_DispatchReview_Call {
+	return &MockDispatcher_DispatchReview_Call{Call: _e.mock.On("DispatchReview", ctx, deliveryID, eventName, event)}
+}
+
+func (_c *MockDispatcher_DispatchReview_Call) Run(run func(ctx context.Context, deliveryID string, eventName string, event *github.PullRequestReviewEvent)) *MockDispatcher_DispatchReview_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*github.PullRequestReviewEvent))
+	})
+	return _c
+}
+
+func (_c *MockDispatcher_DispatchReview_Call) Return(_a0 error) *MockDispatcher_DispatchReview_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDispatcher_DispatchReview_Call) RunAndReturn(run func(context.Context, string, string, *github.PullRequestReviewEvent) error) *MockDispatcher_DispatchReview_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 func (_c *MockDispatcher_Dispatch_Call) Run(run func(ctx context.Context, deliveryID string, eventName string, event *github.PullRequestEvent)) *MockDispatcher_Dispatch_Call {

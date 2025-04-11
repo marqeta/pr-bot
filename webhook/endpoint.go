@@ -14,19 +14,19 @@ type endpoint struct {
 }
 
 type controller struct {
-	webhookSecrect string
-	parser         Parser
-	dispatcher     pullrequest.Dispatcher
-	metrics        metrics.Emitter
+	webhookSecret string
+	parser        Parser
+	dispatcher    pullrequest.Dispatcher
+	metrics       metrics.Emitter
 }
 
 func NewEndpoint(ws string, p Parser, d pullrequest.Dispatcher, m metrics.Emitter) prbot.Endpoint {
 	return &endpoint{
 		controller: &controller{
-			webhookSecrect: ws,
-			parser:         p,
-			dispatcher:     d,
-			metrics:        m,
+			webhookSecret: ws,
+			parser:        p,
+			dispatcher:    d,
+			metrics:       m,
 		},
 	}
 }

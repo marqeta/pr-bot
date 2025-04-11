@@ -373,9 +373,133 @@ func sampleID() id.PR {
 	}
 }
 
+func Test_dispatcher_DispatchReview(t *testing.T) {
+	ctx := context.Background()
+	type args struct {
+		deliveryID string
+		eventName  string
+		event      *github.PullRequestReviewEvent
+	}
+	tests := []struct {
+		name            string
+		args            args
+		setExpectations func(id id.PR, event *github.PullRequestReviewEvent,
+			f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler)
+		wantErr error
+	}{
+		{
+			name: "Should dispatch PR Review Submitted Event",
+			args: args{
+				deliveryID: "123",
+				eventName:  pullrequest.EventNameReview,
+				event:      prReviewEvent(github.String("submitted"), sampleID()),
+			},
+			setExpectations: func(id id.PR, event *github.PullRequestReviewEvent,
+				f *pullrequest.MockEventFilter, h *pullrequest.MockEventHandler) {
+				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
+				h.EXPECT().EvalAndReviewPRReviewEvent(ctx, id, event).Return(nil).Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "Should return silently when PR event action is unknown",
+			args: args{
+				deliveryID: "123",
+				eventName:  pullrequest.EventNameReview,
+				event:      prReviewEvent(github.String("unknown"), sampleID()),
+			},
+			setExpectations: func(id id.PR, _ *github.PullRequestReviewEvent,
+				f *pullrequest.MockEventFilter, _ *pullrequest.MockEventHandler) {
+				f.EXPECT().ShouldHandle(ctx, id).Return(true, nil).Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "Error when Event action is nil",
+			args: args{
+				deliveryID: "123",
+				eventName:  pullrequest.EventNameReview,
+				event:      prReviewEvent(nil, sampleID()),
+			},
+			setExpectations: func(_ id.PR, _ *github.PullRequestReviewEvent,
+				_ *pullrequest.MockEventFilter, _ *pullrequest.MockEventHandler) {
+			},
+			wantErr: pe.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrEventActionNotFound),
+		},
+		{
+			name: "Error when Event PR is nil",
+			args: args{
+				deliveryID: "123",
+				eventName:  pullrequest.EventNameReview,
+				event: &github.PullRequestReviewEvent{
+					Action:      github.String("submitted"),
+					PullRequest: nil,
+				},
+			},
+			setExpectations: func(_ id.PR, _ *github.PullRequestReviewEvent,
+				_ *pullrequest.MockEventFilter, _ *pullrequest.MockEventHandler) {
+			},
+			wantErr: pe.InValidRequestError(ctx, "error parsing webhook event", pullrequest.ErrPRNotFound),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := pullrequest.NewMockEventHandler(t)
+			filter := pullrequest.NewMockEventFilter(t)
+			d := pullrequest.NewDispatcher(handler, filter, metrics.NewNoopEmitter())
+
+			tt.setExpectations(sampleID(), tt.args.event, filter, handler)
+			err := d.DispatchReview(ctx, tt.args.deliveryID, tt.args.eventName, tt.args.event)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("dispatcher.Dispatch() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+		})
+	}
+}
+
 func empty(e *github.PullRequestEvent) *github.PullRequestEvent {
 	e.PullRequest.ChangedFiles = github.Int(0)
 	return e
+}
+func prReviewEvent(action *string, id id.PR) *github.PullRequestReviewEvent {
+	url := fmt.Sprintf("%s/%s/%d", id.Owner, id.Repo, id.Number)
+	return &github.PullRequestReviewEvent{
+		Action: action,
+		Review: &github.PullRequestReview{
+			State: github.String("APPROVED"),
+			User: &github.User{
+				Login: &id.Author,
+			},
+		},
+		PullRequest: &github.PullRequest{
+			Number: &id.Number,
+			NodeID: &id.NodeID,
+			User: &github.User{
+				Login: &id.Author,
+			},
+			HTMLURL: &url,
+			Base: &github.PullRequestBranch{
+				Repo: &github.Repository{
+					AllowAutoMerge:   aws.Bool(false),
+					AllowRebaseMerge: aws.Bool(false),
+					AllowSquashMerge: aws.Bool(false),
+					AllowMergeCommit: aws.Bool(false),
+				},
+			},
+			ChangedFiles: github.Int(1),
+		},
+		Repo: &github.Repository{
+			Owner: &github.User{
+				Login: &id.Owner,
+			},
+			DefaultBranch: github.String("main"),
+			Name:          &id.Repo,
+			FullName:      &id.RepoFullName,
+			Visibility:    github.String("public"),
+		},
+	}
 }
 
 func prEvent(action *string, id id.PR) *github.PullRequestEvent {
