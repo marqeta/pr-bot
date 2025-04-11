@@ -5,10 +5,12 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
 	"github.com/go-chi/httplog"
 	"github.com/go-chi/render"
 	pe "github.com/marqeta/pr-bot/errors"
+	"github.com/marqeta/pr-bot/opa/evaluation"
 )
 
 type Response struct {
@@ -24,8 +26,9 @@ func (e *Response) Render(_ http.ResponseWriter, r *http.Request) error {
 
 func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	oplog := httplog.LogEntry(ctx)
 	reqID := middleware.GetReqID(ctx)
+	ctx = evaluation.SetDeliveryID(r.Context(), uuid.NewString())
+	oplog := httplog.LogEntry(ctx)
 
 	// do auth verification
 	// TODO SigV4 verification for presigned get-caller-identity request
@@ -47,6 +50,14 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	err = c.dao.StorePayload(ctx, metadata, body)
 	if err != nil {
 		oplog.Err(err).Msg("error storing payload")
+		pe.RenderError(w, r, err)
+		return
+	}
+
+	err = c.handler.EvalAndReviewDataEvent(ctx, metadata)
+	if err != nil {
+		// handle evaluation error
+		oplog.Err(err).Msg("error evaluating polciies during data event")
 		pe.RenderError(w, r, err)
 		return
 	}

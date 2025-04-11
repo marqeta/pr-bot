@@ -220,6 +220,33 @@ func (gh *githubDao) IssueCommentForError(ctx context.Context, id id.PR, apiErro
 	return nil
 }
 
+func (gh *githubDao) GetPullRequest(ctx context.Context, id id.PR) (*github.PullRequest, error) {
+	pr, resp, err := gh.v3.PullRequests.Get(ctx, id.Owner, id.Repo, id.Number)
+	if err != nil {
+		return nil, classifyError(ctx, resp, "error getting PR details", err)
+	}
+	gh.emitTokenExpiration(ctx, resp)
+	return pr, nil
+}
+
+func (gh *githubDao) GetRepository(ctx context.Context, id id.PR) (*github.Repository, error) {
+	repo, resp, err := gh.v3.Repositories.Get(ctx, id.Owner, id.Repo)
+	if err != nil {
+		return nil, classifyError(ctx, resp, "error getting repo details", err)
+	}
+	gh.emitTokenExpiration(ctx, resp)
+	return repo, nil
+}
+
+func (gh *githubDao) GetOrganization(ctx context.Context, id id.PR) (*github.Organization, error) {
+	org, resp, err := gh.v3.Organizations.Get(ctx, id.Owner)
+	if err != nil {
+		return nil, classifyError(ctx, resp, "error getting org details", err)
+	}
+	gh.emitTokenExpiration(ctx, resp)
+	return org, nil
+}
+
 func (gh *githubDao) emitTokenExpiration(ctx context.Context, resp *github.Response) {
 	if resp == nil {
 		return

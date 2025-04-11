@@ -5,6 +5,7 @@ import (
 	prbot "github.com/marqeta/pr-bot"
 	store "github.com/marqeta/pr-bot/datastore"
 	"github.com/marqeta/pr-bot/metrics"
+	"github.com/marqeta/pr-bot/pullrequest"
 	"github.com/slok/go-http-metrics/middleware"
 	"github.com/slok/go-http-metrics/middleware/std"
 )
@@ -16,13 +17,15 @@ type endpoint struct {
 type controller struct {
 	metrics metrics.Emitter
 	dao     store.Dao
+	handler pullrequest.EventHandler
 }
 
-func NewEndpoint(dao store.Dao, m metrics.Emitter) prbot.Endpoint {
+func NewEndpoint(d store.Dao, m metrics.Emitter, h pullrequest.EventHandler) prbot.Endpoint {
 	return &endpoint{
 		controller: &controller{
 			metrics: m,
-			dao:     dao,
+			dao:     d,
+			handler: h,
 		},
 	}
 }
