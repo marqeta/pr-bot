@@ -54,4 +54,7 @@ type API interface {
 	ListFilesChangedInPR(ctx context.Context, id id.PR) ([]*github.CommitFile, error)
 	GetBranchProtection(ctx context.Context, id id.PR, branch string) (*github.Protection, error)
 	ListNamesOfFilesChangedInPR(ctx context.Context, id id.PR) ([]string, error)
+	GetPullRequest(ctx context.Context, id id.PR) (*github.PullRequest, error)
+	GetRepository(ctx context.Context, id id.PR) (*github.Repository, error)
+	GetOrganization(ctx context.Context, id id.PR) (*github.Organization, error)
 }

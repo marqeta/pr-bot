@@ -43,3 +43,7 @@ func GetDeliveryID(ctx context.Context) string {
 	}
 	return ""
 }
+
+func SetDeliveryID(ctx context.Context, deliveryID string) context.Context {
+	return context.WithValue(ctx, DeliveryIDKey, deliveryID)
+}

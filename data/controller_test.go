@@ -18,6 +18,7 @@ import (
 	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
+	pr "github.com/marqeta/pr-bot/pullrequest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -31,18 +32,19 @@ func Test_controller_HandleEvent(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		setExpectations func(dao *store.MockDao, req *http.Request)
+		setExpectations func(dao *store.MockDao, req *http.Request, eh *pr.MockEventHandler)
 		requestID       string
 		wantCode        int
 		wantMessage     string
 	}{
 		{
-			name: "should return 200 when storing payload",
-			setExpectations: func(dao *store.MockDao, _ *http.Request) {
+			name: "should return 200 when payload is stored successfully and event is evaluated successfully",
+			setExpectations: func(dao *store.MockDao, _ *http.Request, eh *pr.MockEventHandler) {
 				dao.EXPECT().ToMetadata(mock.Anything, mock.AnythingOfType("*http.Request")).
 					Return(randomMetadata(), nil).Once()
 				dao.EXPECT().StorePayload(mock.Anything, randomMetadata(), json.RawMessage(payload)).
 					Return(nil).Once()
+				eh.EXPECT().EvalAndReviewDataEvent(mock.Anything, randomMetadata()).Return(nil).Once()
 			},
 			requestID:   "123A",
 			wantCode:    http.StatusOK,
@@ -50,7 +52,7 @@ func Test_controller_HandleEvent(t *testing.T) {
 		},
 		{
 			name: "should return 400 when error parsing metadata",
-			setExpectations: func(dao *store.MockDao, _ *http.Request) {
+			setExpectations: func(dao *store.MockDao, _ *http.Request, _ *pr.MockEventHandler) {
 				dao.EXPECT().ToMetadata(mock.Anything, mock.AnythingOfType("*http.Request")).
 					Return(nil, randomErr).Once()
 			},
@@ -60,7 +62,7 @@ func Test_controller_HandleEvent(t *testing.T) {
 		},
 		{
 			name: "should return 400 when user error occrs while storing payload",
-			setExpectations: func(dao *store.MockDao, _ *http.Request) {
+			setExpectations: func(dao *store.MockDao, _ *http.Request, _ *pr.MockEventHandler) {
 				err := userErr
 				err.RequestID = "123C"
 				dao.EXPECT().ToMetadata(mock.Anything, mock.AnythingOfType("*http.Request")).
@@ -73,14 +75,15 @@ func Test_controller_HandleEvent(t *testing.T) {
 			wantMessage: "error storing payload",
 		},
 		{
-			name: "should return 500 when error occrs while storing payload",
-			setExpectations: func(dao *store.MockDao, _ *http.Request) {
+			name: "should return 500 when evaluating DataEvent fails",
+			setExpectations: func(dao *store.MockDao, _ *http.Request, eh *pr.MockEventHandler) {
 				err := serviceErr
 				err.RequestID = "123D"
 				dao.EXPECT().ToMetadata(mock.Anything, mock.AnythingOfType("*http.Request")).
 					Return(randomMetadata(), nil).Once()
 				dao.EXPECT().StorePayload(mock.Anything, randomMetadata(), json.RawMessage(payload)).
-					Return(err).Once()
+					Return(nil).Once()
+				eh.EXPECT().EvalAndReviewDataEvent(mock.Anything, randomMetadata()).Return(err).Once()
 			},
 			requestID:   "123D",
 			wantCode:    http.StatusInternalServerError,
@@ -90,10 +93,11 @@ func Test_controller_HandleEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dao := store.NewMockDao(t)
-			e := data.NewEndpoint(dao, metrics.NewNoopEmitter())
+			eh := pr.NewMockEventHandler(t)
+			e := data.NewEndpoint(dao, metrics.NewNoopEmitter(), eh)
 
 			req := NewRequest(t, tt.requestID, randomMetadata(), payload)
-			tt.setExpectations(dao, req)
+			tt.setExpectations(dao, req, eh)
 			res := executeRequest(req, e)
 			assert.Equal(t, tt.wantCode, res.Code)
 

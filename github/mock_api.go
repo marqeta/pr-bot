@@ -185,6 +185,183 @@ func (_c *MockAPI_GetBranchProtection_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// GetOrganization provides a mock function with given fields: ctx, _a1
+func (_m *MockAPI) GetOrganization(ctx context.Context, _a1 id.PR) (*v50github.Organization, error) {
+	ret := _m.Called(ctx, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetOrganization")
+	}
+
+	var r0 *v50github.Organization
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) (*v50github.Organization, error)); ok {
+		return rf(ctx, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) *v50github.Organization); ok {
+		r0 = rf(ctx, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*v50github.Organization)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, id.PR) error); ok {
+		r1 = rf(ctx, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockAPI_GetOrganization_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOrganization'
+type MockAPI_GetOrganization_Call struct {
+	*mock.Call
+}
+
+// GetOrganization is a helper method to define mock.On call
+//   - ctx context.Context
+//   - _a1 id.PR
+func (_e *MockAPI_Expecter) GetOrganization(ctx interface{}, _a1 interface{}) *MockAPI_GetOrganization_Call {
+	return &MockAPI_GetOrganization_Call{Call: _e.mock.On("GetOrganization", ctx, _a1)}
+}
+
+func (_c *MockAPI_GetOrganization_Call) Run(run func(ctx context.Context, _a1 id.PR)) *MockAPI_GetOrganization_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(id.PR))
+	})
+	return _c
+}
+
+func (_c *MockAPI_GetOrganization_Call) Return(_a0 *v50github.Organization, _a1 error) *MockAPI_GetOrganization_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockAPI_GetOrganization_Call) RunAndReturn(run func(context.Context, id.PR) (*v50github.Organization, error)) *MockAPI_GetOrganization_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetPullRequest provides a mock function with given fields: ctx, _a1
+func (_m *MockAPI) GetPullRequest(ctx context.Context, _a1 id.PR) (*v50github.PullRequest, error) {
+	ret := _m.Called(ctx, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPullRequest")
+	}
+
+	var r0 *v50github.PullRequest
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) (*v50github.PullRequest, error)); ok {
+		return rf(ctx, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) *v50github.PullRequest); ok {
+		r0 = rf(ctx, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*v50github.PullRequest)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, id.PR) error); ok {
+		r1 = rf(ctx, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockAPI_GetPullRequest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPullRequest'
+type MockAPI_GetPullRequest_Call struct {
+	*mock.Call
+}
+
+// GetPullRequest is a helper method to define mock.On call
+//   - ctx context.Context
+//   - _a1 id.PR
+func (_e *MockAPI_Expecter) GetPullRequest(ctx interface{}, _a1 interface{}) *MockAPI_GetPullRequest_Call {
+	return &MockAPI_GetPullRequest_Call{Call: _e.mock.On("GetPullRequest", ctx, _a1)}
+}
+
+func (_c *MockAPI_GetPullRequest_Call) Run(run func(ctx context.Context, _a1 id.PR)) *MockAPI_GetPullRequest_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(id.PR))
+	})
+	return _c
+}
+
+func (_c *MockAPI_GetPullRequest_Call) Return(_a0 *v50github.PullRequest, _a1 error) *MockAPI_GetPullRequest_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockAPI_GetPullRequest_Call) RunAndReturn(run func(context.Context, id.PR) (*v50github.PullRequest, error)) *MockAPI_GetPullRequest_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetRepository provides a mock function with given fields: ctx, _a1
+func (_m *MockAPI) GetRepository(ctx context.Context, _a1 id.PR) (*v50github.Repository, error) {
+	ret := _m.Called(ctx, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRepository")
+	}
+
+	var r0 *v50github.Repository
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) (*v50github.Repository, error)); ok {
+		return rf(ctx, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR) *v50github.Repository); ok {
+		r0 = rf(ctx, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*v50github.Repository)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, id.PR) error); ok {
+		r1 = rf(ctx, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockAPI_GetRepository_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRepository'
+type MockAPI_GetRepository_Call struct {
+	*mock.Call
+}
+
+// GetRepository is a helper method to define mock.On call
+//   - ctx context.Context
+//   - _a1 id.PR
+func (_e *MockAPI_Expecter) GetRepository(ctx interface{}, _a1 interface{}) *MockAPI_GetRepository_Call {
+	return &MockAPI_GetRepository_Call{Call: _e.mock.On("GetRepository", ctx, _a1)}
+}
+
+func (_c *MockAPI_GetRepository_Call) Run(run func(ctx context.Context, _a1 id.PR)) *MockAPI_GetRepository_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(id.PR))
+	})
+	return _c
+}
+
+func (_c *MockAPI_GetRepository_Call) Return(_a0 *v50github.Repository, _a1 error) *MockAPI_GetRepository_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockAPI_GetRepository_Call) RunAndReturn(run func(context.Context, id.PR) (*v50github.Repository, error)) *MockAPI_GetRepository_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IssueComment provides a mock function with given fields: ctx, _a1, comment
 func (_m *MockAPI) IssueComment(ctx context.Context, _a1 id.PR, comment string) error {
 	ret := _m.Called(ctx, _a1, comment)

@@ -29,8 +29,8 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	oplog := httplog.LogEntry(ctx)
 	reqID := middleware.GetReqID(ctx)
 
-	//Valdiate Payload using shared webhook secret
-	payload, err := c.parser.ValidatePayload(r, []byte(c.webhookSecrect))
+	// Validate payload using shared webhook secret
+	payload, err := c.parser.ValidatePayload(r, []byte(c.webhookSecret))
 	if err != nil {
 		oplog.Err(err).Msg("could not validate webhook payload")
 		pe.RenderError(w, r,
@@ -59,6 +59,8 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 
 	case *github.PullRequestEvent:
 		err = c.dispatcher.Dispatch(ctx, deliveryID, eventName, event)
+	case *github.PullRequestReviewEvent:
+		err = c.dispatcher.DispatchReview(ctx, deliveryID, eventName, event)
 
 	default:
 		oplog.Info().Msgf("No Handlers registered for Event: %s", eventName)
