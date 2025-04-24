@@ -82,8 +82,11 @@ func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, ghe input.G
 	switch opaResult.Review.Type {
 
 	case types.Approve:
+		autoApprove := ghe.PullRequest.GetBase().GetRepo().GetAllowAutoMerge() ||
+			ghe.Repository.GetAllowAutoMerge()
+
 		return eh.reviewer.Approve(ctx, id, opaResult.Review.Body, review.ApproveOptions{
-			AutoMergeEnabled: ghe.PullRequest.GetBase().GetRepo().GetAllowAutoMerge(),
+			AutoMergeEnabled: autoApprove,
 			DefaultBranch:    ghe.Repository.GetDefaultBranch(),
 			MergeMethod:      mergeMethod(ghe),
 		})

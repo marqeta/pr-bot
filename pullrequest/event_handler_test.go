@@ -33,6 +33,8 @@ func Test_eventHandlerV2_EvalAndReview(t *testing.T) {
 				id:    sampleID(),
 				event: merge(prEvent(github.String("opened"), sampleID())),
 				setExpectaions: func(e *opa.MockEvaluator, r *review.MockReviewer, p *github.PullRequestEvent) {
+					p.PullRequest.Base.Repo.AllowAutoMerge = github.Bool(true)
+
 					e.EXPECT().Evaluate(ctx, ToGHE(p)).Return(types.Result{
 						Track: true,
 						Review: types.Review{
@@ -99,6 +101,7 @@ func Test_eventHandlerV2_EvalAndReview(t *testing.T) {
 				id:    sampleID(),
 				event: rebase(prEvent(github.String("opened"), sampleID())),
 				setExpectaions: func(e *opa.MockEvaluator, r *review.MockReviewer, p *github.PullRequestEvent) {
+					p.Repo.AllowRebaseMerge = github.Bool(true)
 					e.EXPECT().Evaluate(ctx, ToGHE(p)).Return(types.Result{
 						Track: true,
 						Review: types.Review{
@@ -258,6 +261,7 @@ func Test_eventHandlerV2_EvalAndReview(t *testing.T) {
 				id:    sampleID(),
 				event: prEvent(github.String("opened"), sampleID()),
 				setExpectaions: func(e *opa.MockEvaluator, r *review.MockReviewer, p *github.PullRequestEvent) {
+					p.PullRequest.Base.Repo.AllowAutoMerge = github.Bool(false)
 					e.EXPECT().Evaluate(ctx, ToGHE(p)).Return(types.Result{
 						Track: true,
 						Review: types.Review{
