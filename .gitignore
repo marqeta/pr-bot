@@ -38,3 +38,6 @@ bundles/*
 
 # ignore Intellij auto-generated folder
 .idea/
+
+# ignore hidden metadata file created by the macOS Finder
+**/.DS_Store
