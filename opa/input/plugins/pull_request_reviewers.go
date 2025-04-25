@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"encoding/json"
+	"sort"
 
 	"github.com/google/go-github/v50/github"
 	gh "github.com/marqeta/pr-bot/github"
@@ -19,6 +20,18 @@ func (prr *PullRequestReviewers) GetInputMsg(ctx context.Context, ghe input.GHE)
 	if err != nil {
 		return nil, err
 	}
+
+	// 2. Sort the raw reviews by submission time ascending
+	sort.Slice(reviews, func(i, j int) bool {
+		ri, rj := reviews[i], reviews[j]
+		if ri.SubmittedAt == nil {
+			return true
+		}
+		if rj.SubmittedAt == nil {
+			return false
+		}
+		return ri.SubmittedAt.Time.Before(rj.SubmittedAt.Time)
+	})
 
 	// 2. Reverse-iterate and pick only the first occurrence per login
 	//    key = string login, value = most recent *github.PullRequestReview
