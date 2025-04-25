@@ -53,7 +53,7 @@ func (prr *PullRequestReviewers) GetInputMsg(ctx context.Context, ghe input.GHE)
 	// 4. Marshal exactly that slice of “latest” reviews
 	data, err := json.Marshal(latestReviews)
 	if err != nil {
-		return nil, err
+		return json.RawMessage{}, err
 	}
 
 	return json.RawMessage(data), nil
