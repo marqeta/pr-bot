@@ -14,6 +14,7 @@ import (
 
 func TestPullRequestReviewers_GetInputMsg(t *testing.T) {
 	ctx := context.Background()
+	//nolint:err113 // we don't need static error here for this test
 	errRandom := errors.New("random error")
 
 	type args struct {

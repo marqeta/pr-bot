@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/google/go-github/v50/github"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/opa/input"
