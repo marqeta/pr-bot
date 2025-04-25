@@ -101,8 +101,8 @@ func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, ghe input.G
 }
 
 func mergeMethod(ghe input.GHE) githubv4.PullRequestMergeMethod {
-	rebase := ghe.PullRequest.GetBase().GetRepo().GetAllowRebaseMerge()
-	squash := ghe.PullRequest.GetBase().GetRepo().GetAllowSquashMerge()
+	rebase := ghe.PullRequest.GetBase().GetRepo().GetAllowRebaseMerge() || ghe.Repository.GetAllowRebaseMerge()
+	squash := ghe.PullRequest.GetBase().GetRepo().GetAllowSquashMerge() || ghe.Repository.GetAllowSquashMerge()
 	fc := ghe.PullRequest.GetChangedFiles()
 	// TODO: let policy specify what merge method to use.
 	// when rebasing empty commits on to main,
