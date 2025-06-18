@@ -1,8 +1,12 @@
 package data
 
 import (
+	"context"
+	"encoding/xml"
+	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -19,6 +23,17 @@ type Response struct {
 	Message    string `json:"message,omitempty"`
 }
 
+type GetCallerIdentityResponse struct {
+	XMLName xml.Name `xml:"GetCallerIdentityResponse"`
+	Result  struct {
+		Arn     string `xml:"Arn"`
+		Account string `xml:"Account"`
+		UserID  string `xml:"UserId"`
+	} `xml:"GetCallerIdentityResult"`
+}
+
+var HttpGet = http.Get
+
 func (e *Response) Render(_ http.ResponseWriter, r *http.Request) error {
 	render.Status(r, e.StatusCode)
 	return nil
@@ -30,8 +45,15 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	ctx = evaluation.SetDeliveryID(r.Context(), uuid.NewString())
 	oplog := httplog.LogEntry(ctx)
 
-	// do auth verification
-	// TODO SigV4 verification for presigned get-caller-identity request
+	callerArn, err := verifySTSIdentity(ctx, r)
+	if err != nil {
+		oplog.Err(err).Msg("identity verification failed")
+		pe.RenderError(w, r, err)
+		return
+	}
+
+	oplog.Info().Str("callerArn", callerArn).Msg("identity verified")
+
 	metadata, err := c.dao.ToMetadata(ctx, r)
 	if err != nil {
 		oplog.Err(err).Msg("error parsing metadata")
@@ -56,14 +78,56 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 
 	err = c.handler.EvalAndReviewDataEvent(ctx, metadata)
 	if err != nil {
-		// handle evaluation error
-		oplog.Err(err).Msg("error evaluating polciies during data event")
+		oplog.Err(err).Msg("error evaluating policies during data event")
 		pe.RenderError(w, r, err)
 		return
 	}
+
 	_ = render.Render(w, r, &Response{
 		StatusCode: http.StatusOK,
 		RequestID:  reqID,
 		Message:    "payload stored successfully",
 	})
+}
+
+func verifySTSIdentity(ctx context.Context, r *http.Request) (string, error) {
+	stsURL := r.Header.Get("X-Aws-Sts-Signature")
+	if stsURL == "" {
+		return "", pe.UserError(ctx, "missing STS signature header", nil)
+	}
+
+	resp, err := HttpGet(stsURL)
+	if err != nil {
+		return "", pe.UserError(ctx, "failed to call STS", err)
+	}
+	defer resp.Body.Close()
+
+	oplog := httplog.LogEntry(ctx)
+
+	oplog.Info().Int("status", resp.StatusCode).Str("url", stsURL).Msg("STS GetCallerIdentity response")
+
+	if resp.StatusCode != http.StatusOK {
+		return "", pe.UserError(ctx, "STS responded with non-200", errors.New("non-200 response from STS"))
+	}
+
+	// Log the actual status code
+
+	stsBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", pe.UserError(ctx, "STS read error", err)
+	}
+
+	var stsResp GetCallerIdentityResponse
+	if err := xml.Unmarshal(stsBody, &stsResp); err != nil {
+		return "", pe.UserError(ctx, "STS parse error", err)
+	}
+
+	callerArn := stsResp.Result.Arn
+	oplog.Info().Str("callerarn", callerArn).Msg("STS CALLER ARN")
+
+	if callerArn == "" || !strings.Contains(callerArn, ":assumed-role/s--polynator") {
+		return "", pe.UserError(ctx, "unauthorized identity", errors.New("unauthorized identity"))
+	}
+
+	return callerArn, nil
 }
