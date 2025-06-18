@@ -111,8 +111,6 @@ func verifySTSIdentity(ctx context.Context, r *http.Request) (string, error) {
 		return "", pe.UserError(ctx, "STS responded with non-200", errors.New("non-200 response from STS"))
 	}
 
-	// Log the actual status code
-
 	stsBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", pe.UserError(ctx, "STS read error", err)
