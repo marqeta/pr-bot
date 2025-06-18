@@ -32,7 +32,7 @@ type GetCallerIdentityResponse struct {
 	} `xml:"GetCallerIdentityResult"`
 }
 
-var HttpGet = http.Get
+var HTTPGet = http.Get
 
 func (e *Response) Render(_ http.ResponseWriter, r *http.Request) error {
 	render.Status(r, e.StatusCode)
@@ -96,7 +96,7 @@ func verifySTSIdentity(ctx context.Context, r *http.Request) (string, error) {
 		return "", pe.UserError(ctx, "missing STS signature header", nil)
 	}
 
-	resp, err := HttpGet(stsURL)
+	resp, err := HTTPGet(stsURL)
 	if err != nil {
 		return "", pe.UserError(ctx, "failed to call STS", err)
 	}
@@ -107,6 +107,7 @@ func verifySTSIdentity(ctx context.Context, r *http.Request) (string, error) {
 	oplog.Info().Int("status", resp.StatusCode).Str("url", stsURL).Msg("STS GetCallerIdentity response")
 
 	if resp.StatusCode != http.StatusOK {
+		//nolint:goerr113
 		return "", pe.UserError(ctx, "STS responded with non-200", errors.New("non-200 response from STS"))
 	}
 
@@ -126,6 +127,7 @@ func verifySTSIdentity(ctx context.Context, r *http.Request) (string, error) {
 	oplog.Info().Str("callerarn", callerArn).Msg("STS CALLER ARN")
 
 	if callerArn == "" || !strings.Contains(callerArn, ":assumed-role/s--polynator") {
+		//nolint:goerr113
 		return "", pe.UserError(ctx, "unauthorized identity", errors.New("unauthorized identity"))
 	}
 

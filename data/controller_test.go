@@ -35,10 +35,11 @@ func Test_controller_HandleEvent(t *testing.T) {
 		</GetCallerIdentityResult>
 	</GetCallerIdentityResponse>`
 
-	// Save and restore original HttpGet after test
-	originalHTTPGet := data.HttpGet
-	defer func() { data.HttpGet = originalHTTPGet }()
+	// Save and restore original HTTPGet after test
+	originalHTTPGet := data.HTTPGet
+	defer func() { data.HTTPGet = originalHTTPGet }()
 
+	//nolint:goerr113
 	randomErr := fmt.Errorf("random error")
 	payload := []byte(`{"key": "value"}`)
 	userErr := pe.UserError(context.TODO(), "error storing payload", randomErr)
@@ -125,7 +126,7 @@ func Test_controller_HandleEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data.HttpGet = func(url string) (*http.Response, error) {
+			data.HTTPGet = func(_ string) (*http.Response, error) {
 				return tt.stsResponse, tt.stsError
 			}
 
