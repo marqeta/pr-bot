@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	//nolint:err113
 	"github.com/go-chi/httplog"
 	pe "github.com/marqeta/pr-bot/errors"
 	"io"
