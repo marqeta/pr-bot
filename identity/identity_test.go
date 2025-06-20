@@ -1,7 +1,6 @@
 package identity_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -11,7 +10,6 @@ import (
 
 func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 	validator := &identity.AllowAllValidator{}
-	ctx := context.Background()
 
 	tests := []struct {
 		name    string
@@ -39,7 +37,7 @@ func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validator.ValidateIdentity(ctx, tt.input)
+			err := validator.ValidateIdentity(tt.input)
 			if tt.wantErr != nil {
 				assert.Error(t, err)
 				assert.EqualError(t, err, tt.wantErr.Error())

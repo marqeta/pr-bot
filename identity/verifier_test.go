@@ -23,7 +23,7 @@ type mockValidator struct {
 	err error
 }
 
-func (m *mockValidator) ValidateIdentity(_ context.Context, _ *identity.CallerIdentity) error {
+func (m *mockValidator) ValidateIdentity(_ *identity.CallerIdentity) error {
 	return m.err
 }
 

@@ -23,7 +23,7 @@ func (v *STSVerifier) Verify(ctx context.Context, r *http.Request) (string, erro
 		return "", err
 	}
 
-	if err := v.Validator.ValidateIdentity(ctx, identity); err != nil {
+	if err := v.Validator.ValidateIdentity(identity); err != nil {
 		return "", pe.UserError(ctx, "unauthorized identity", err)
 	}
 
