@@ -21,7 +21,6 @@ type DefaultFetcher struct {
 	HTTPClient *http.Client
 }
 
-
 func (f *DefaultFetcher) FetchCallerIdentity(ctx context.Context, r *http.Request) (*CallerIdentity, error) {
 	oplog := httplog.LogEntry(ctx)
 	rawPresignedURL := r.Header.Get("X-AWS-STS-SIGNATURE")

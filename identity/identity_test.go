@@ -14,9 +14,9 @@ func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name     string
-		input    *identity.CallerIdentity
-		wantErr  error
+		name    string
+		input   *identity.CallerIdentity
+		wantErr error
 	}{
 		{
 			name:    "valid identity",

@@ -34,12 +34,12 @@ func TestFetchCallerIdentity(t *testing.T) {
 	}`
 
 	tests := []struct {
-		name               string
-		sigHeader          string
-		mockResponse       *http.Response
-		mockError          error
-		expectedErr        string
-		expectedCallerArn  string
+		name              string
+		sigHeader         string
+		mockResponse      *http.Response
+		mockError         error
+		expectedErr       string
+		expectedCallerArn string
 	}{
 		{
 			name:        "missing signature header",
