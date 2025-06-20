@@ -19,10 +19,10 @@ type controller struct {
 	metrics  metrics.Emitter
 	dao      store.Dao
 	handler  pullrequest.EventHandler
-	verifier identity.IdentityVerifier
+	verifier identity.Verifier
 }
 
-func NewEndpoint(d store.Dao, m metrics.Emitter, h pullrequest.EventHandler, v identity.IdentityVerifier) prbot.Endpoint {
+func NewEndpoint(d store.Dao, m metrics.Emitter, h pullrequest.EventHandler, v identity.Verifier) prbot.Endpoint {
 	return &endpoint{
 		controller: &controller{
 			metrics:  m,

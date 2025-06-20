@@ -52,8 +52,9 @@ func TestFetchCallerIdentity(t *testing.T) {
 			expectedErr: "invalid STS presigned URL",
 		},
 		{
-			name:        "error calling STS",
-			sigHeader:   "Action=GetCallerIdentity&Version=2011-06-15",
+			name:      "error calling STS",
+			sigHeader: "Action=GetCallerIdentity&Version=2011-06-15",
+			//nolint:goerr113
 			mockError:   errors.New("http client error"),
 			expectedErr: "failed to call STS",
 		},
@@ -89,7 +90,7 @@ func TestFetchCallerIdentity(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockTransport := &mockRoundTripper{
-				roundTripFunc: func(req *http.Request) (*http.Response, error) {
+				roundTripFunc: func(_ *http.Request) (*http.Response, error) {
 					return tt.mockResponse, tt.mockError
 				},
 			}

@@ -7,14 +7,14 @@ import (
 	pe "github.com/marqeta/pr-bot/errors"
 )
 
-type IdentityVerifier interface {
+type Verifier interface {
 	Verify(ctx context.Context, r *http.Request) (string, error)
 }
 
 type STSVerifier struct {
 	HTTPClient *http.Client
-	Validator  IdentityValidator
-	Fetcher    IdentityFetcher
+	Validator  Validator
+	Fetcher    Fetcher
 }
 
 func (v *STSVerifier) Verify(ctx context.Context, r *http.Request) (string, error) {

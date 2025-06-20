@@ -13,7 +13,7 @@ import (
 	"net/url"
 )
 
-type IdentityFetcher interface {
+type Fetcher interface {
 	FetchCallerIdentity(ctx context.Context, r *http.Request) (*CallerIdentity, error)
 }
 
@@ -25,6 +25,7 @@ func (f *DefaultFetcher) FetchCallerIdentity(ctx context.Context, r *http.Reques
 	oplog := httplog.LogEntry(ctx)
 	rawPresignedURL := r.Header.Get("X-AWS-STS-SIGNATURE")
 	if rawPresignedURL == "" {
+		//nolint:goerr113
 		return nil, pe.UserError(ctx, "missing STS signature header", errors.New("no signature provided"))
 	}
 
@@ -54,6 +55,7 @@ func (f *DefaultFetcher) FetchCallerIdentity(ctx context.Context, r *http.Reques
 	oplog.Info().Int("status", resp.StatusCode).Str("url", secureSTSURL.String()).Msg("STS GetCallerIdentity response")
 
 	if resp.StatusCode != http.StatusOK {
+		//nolint:goerr113
 		return nil, pe.UserError(ctx, "STS responded with non-200", errors.New("non-200 response from STS"))
 	}
 

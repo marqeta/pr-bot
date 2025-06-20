@@ -24,13 +24,15 @@ func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "nil identity",
-			input:   nil,
+			name:  "nil identity",
+			input: nil,
+			//nolint:goerr113
 			wantErr: errors.New("identity missing or invalid"),
 		},
 		{
-			name:    "empty ARN",
-			input:   &identity.CallerIdentity{Arn: ""},
+			name:  "empty ARN",
+			input: &identity.CallerIdentity{Arn: ""},
+			//nolint:goerr113
 			wantErr: errors.New("identity missing or invalid"),
 		},
 	}

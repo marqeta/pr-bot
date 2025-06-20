@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-type IdentityValidator interface {
+type Validator interface {
 	ValidateIdentity(ctx context.Context, identity *CallerIdentity) error
 }
 

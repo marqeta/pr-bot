@@ -15,7 +15,7 @@ type mockFetcher struct {
 	err      error
 }
 
-func (m *mockFetcher) FetchCallerIdentity(ctx context.Context, r *http.Request) (*identity.CallerIdentity, error) {
+func (m *mockFetcher) FetchCallerIdentity(_ context.Context, _ *http.Request) (*identity.CallerIdentity, error) {
 	return m.identity, m.err
 }
 
@@ -23,7 +23,7 @@ type mockValidator struct {
 	err error
 }
 
-func (m *mockValidator) ValidateIdentity(ctx context.Context, identity *identity.CallerIdentity) error {
+func (m *mockValidator) ValidateIdentity(_ context.Context, _ *identity.CallerIdentity) error {
 	return m.err
 }
 
@@ -43,6 +43,7 @@ func TestSTSVerifier_Verify(t *testing.T) {
 
 	t.Run("fetch error", func(t *testing.T) {
 		v := identity.STSVerifier{
+			//nolint:goerr113
 			Fetcher:   &mockFetcher{identity: nil, err: errors.New("fetch failed")},
 			Validator: &mockValidator{err: nil},
 		}
@@ -53,7 +54,8 @@ func TestSTSVerifier_Verify(t *testing.T) {
 
 	t.Run("validation error", func(t *testing.T) {
 		v := identity.STSVerifier{
-			Fetcher:   &mockFetcher{identity: &identity.CallerIdentity{Arn: "bad"}, err: nil},
+			Fetcher: &mockFetcher{identity: &identity.CallerIdentity{Arn: "bad"}, err: nil},
+			//nolint:goerr113
 			Validator: &mockValidator{err: errors.New("unauthorized")},
 		}
 		arn, err := v.Verify(ctx, req)

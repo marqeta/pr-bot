@@ -25,12 +25,12 @@ import (
 )
 
 type mockVerifier struct {
-	identity.IdentityVerifier
+	identity.Verifier
 	Arn string
 	Err error
 }
 
-func (m *mockVerifier) Verify(ctx context.Context, r *http.Request) (string, error) {
+func (m *mockVerifier) Verify(_ context.Context, _ *http.Request) (string, error) {
 	return m.Arn, m.Err
 }
 
