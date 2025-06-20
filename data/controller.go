@@ -1,13 +1,13 @@
 package data
 
 import (
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
 	"io"
 	"net/http"
-	//nolint:err113
+
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+
 	"github.com/go-chi/httplog"
-	//nolint:err113
 	"github.com/go-chi/render"
 	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/opa/evaluation"

@@ -2,16 +2,15 @@ package identity
 
 import (
 	"context"
-
 	"encoding/json"
 	"errors"
 	"fmt"
-	//nolint:err113
-	"github.com/go-chi/httplog"
-	pe "github.com/marqeta/pr-bot/errors"
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/go-chi/httplog"
+	pe "github.com/marqeta/pr-bot/errors"
 )
 
 type Fetcher interface {
