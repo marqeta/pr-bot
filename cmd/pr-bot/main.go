@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/google/go-github/v50/github"
@@ -19,6 +20,7 @@ import (
 	"github.com/marqeta/pr-bot/datastore"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/healthcheck"
+	"github.com/marqeta/pr-bot/identity"
 	"github.com/marqeta/pr-bot/oci"
 	"github.com/marqeta/pr-bot/opa"
 	"github.com/marqeta/pr-bot/opa/client"
@@ -73,7 +75,13 @@ func main() {
 func dataEndpoint(svc *prbot.Service, cfg *prbot.Config, eh pullrequest.EventHandler) prbot.Endpoint {
 	log.Info().Msg("Setting up data endpoint")
 	dao := datastore.NewDynamoDao(svc.DDB, svc.Metrics, cfg.Datastore.TTL, cfg.Datastore.Table)
-	return data.NewEndpoint(dao, svc.Metrics, eh)
+
+	verifier := &identity.STSVerifier{
+		HTTPClient: http.DefaultClient,
+		Validator:  &identity.AllowAllValidator{},
+		Fetcher:    &identity.DefaultFetcher{HTTPClient: http.DefaultClient},
+	}
+	return data.NewEndpoint(dao, svc.Metrics, eh, verifier)
 }
 
 func setUpOPAClient(cfg *prbot.Config) client.Client {
