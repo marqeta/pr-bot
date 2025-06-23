@@ -71,6 +71,10 @@ type Config struct {
 		Table string        `yaml:"Table" env:"TABLE"`
 		TTL   time.Duration `yaml:"TTL" env:"TTL"`
 	} `yaml:"Datastore" env-prefix:"DATASTORE_"`
+	Identity struct {
+		AllowedCallerArns     []string `yaml:"AllowedCallerArns" env:"ALLOWED_CALLER_ARNS"`
+		AllowedCallerAccounts []string `yaml:"AllowedCallerAccounts" env:"ALLOWED_CALLER_ACCOUNTS"`
+	} `yaml:"Identity" env-prefix:"IDENTITY_"`
 }
 
 func ParseConfigFiles() (*Config, error) {

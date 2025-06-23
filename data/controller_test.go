@@ -9,19 +9,30 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5/middleware"
-
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+
 	prbot "github.com/marqeta/pr-bot"
 	"github.com/marqeta/pr-bot/data"
 	store "github.com/marqeta/pr-bot/datastore"
 	pe "github.com/marqeta/pr-bot/errors"
 	"github.com/marqeta/pr-bot/id"
+	"github.com/marqeta/pr-bot/identity"
 	"github.com/marqeta/pr-bot/metrics"
 	pr "github.com/marqeta/pr-bot/pullrequest"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
+
+type mockVerifier struct {
+	identity.Verifier
+	Arn string
+	Err error
+}
+
+func (m *mockVerifier) Verify(_ context.Context, _ *http.Request) (string, error) {
+	return m.Arn, m.Err
+}
 
 func Test_controller_HandleEvent(t *testing.T) {
 	//nolint:goerr113
@@ -94,7 +105,8 @@ func Test_controller_HandleEvent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dao := store.NewMockDao(t)
 			eh := pr.NewMockEventHandler(t)
-			e := data.NewEndpoint(dao, metrics.NewNoopEmitter(), eh)
+			verifier := &mockVerifier{Arn: "arn:aws:sts::123456789012:assumed-role/test-role/test-user"}
+			e := data.NewEndpoint(dao, metrics.NewNoopEmitter(), eh, verifier)
 
 			req := NewRequest(t, tt.requestID, randomMetadata(), payload)
 			tt.setExpectations(dao, req, eh)

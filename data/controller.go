@@ -30,8 +30,15 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	ctx = evaluation.SetDeliveryID(r.Context(), uuid.NewString())
 	oplog := httplog.LogEntry(ctx)
 
-	// do auth verification
-	// TODO SigV4 verification for presigned get-caller-identity request
+	callerArn, err := c.verifier.Verify(ctx, r)
+	if err != nil {
+		oplog.Err(err).Msg("identity verification failed")
+		pe.RenderError(w, r, err)
+		return
+	}
+
+	oplog.Info().Str("sigv4 callerArn", callerArn).Msg("identity verified")
+
 	metadata, err := c.dao.ToMetadata(ctx, r)
 	if err != nil {
 		oplog.Err(err).Msg("error parsing metadata")
@@ -56,11 +63,11 @@ func (c *controller) HandleEvent(w http.ResponseWriter, r *http.Request) {
 
 	err = c.handler.EvalAndReviewDataEvent(ctx, metadata)
 	if err != nil {
-		// handle evaluation error
-		oplog.Err(err).Msg("error evaluating polciies during data event")
+		oplog.Err(err).Msg("error evaluating policies during data event")
 		pe.RenderError(w, r, err)
 		return
 	}
+
 	_ = render.Render(w, r, &Response{
 		StatusCode: http.StatusOK,
 		RequestID:  reqID,

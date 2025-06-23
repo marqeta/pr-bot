@@ -15,7 +15,7 @@ Throttler:
   TTLFieldName: "ttl"
 OPA:
   Bundles:
-    Root: "/Users/pkrishnan/ws/pr-bot/bundles"
+    Root: "/Users/jamirkulov/ws/pr-bot/bundles"
     Filename: "pr-bot-policy-dev.tar.gz"
     ECR:
       Registry: "986695000930.dkr.ecr.us-east-1.amazonaws.com"
@@ -30,3 +30,8 @@ Reviewer:
 Datastore:
   Table: "pr-bot-dev-datastore"
   TTL: 336h
+Identity:
+  AllowedCallerArns:
+    - "some-fake-arn"
+  AllowedCallerAccounts:
+    - "0000000000"

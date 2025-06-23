@@ -4,6 +4,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	prbot "github.com/marqeta/pr-bot"
 	store "github.com/marqeta/pr-bot/datastore"
+	"github.com/marqeta/pr-bot/identity"
 	"github.com/marqeta/pr-bot/metrics"
 	"github.com/marqeta/pr-bot/pullrequest"
 	"github.com/slok/go-http-metrics/middleware"
@@ -15,17 +16,19 @@ type endpoint struct {
 }
 
 type controller struct {
-	metrics metrics.Emitter
-	dao     store.Dao
-	handler pullrequest.EventHandler
+	metrics  metrics.Emitter
+	dao      store.Dao
+	handler  pullrequest.EventHandler
+	verifier identity.Verifier
 }
 
-func NewEndpoint(d store.Dao, m metrics.Emitter, h pullrequest.EventHandler) prbot.Endpoint {
+func NewEndpoint(d store.Dao, m metrics.Emitter, h pullrequest.EventHandler, v identity.Verifier) prbot.Endpoint {
 	return &endpoint{
 		controller: &controller{
-			metrics: m,
-			dao:     d,
-			handler: h,
+			metrics:  m,
+			dao:      d,
+			handler:  h,
+			verifier: v,
 		},
 	}
 }
