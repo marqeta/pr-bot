@@ -17,6 +17,7 @@ type AllowAllValidator struct {
 
 func (v *AllowAllValidator) ValidateIdentity(identity *CallerIdentity) error {
 	if identity == nil || !stringInSlice(identity.Arn, v.Config.Identity.AllowedCallerArns) || !stringInSlice(identity.Account, v.Config.Identity.AllowedCallerAccounts) {
+		//nolint:err113
 		return errors.New("identity missing or invalid")
 	}
 	return nil

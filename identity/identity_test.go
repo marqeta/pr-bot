@@ -1,7 +1,6 @@
 package identity_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -15,10 +14,11 @@ type testValidator struct {
 	Config *prbot.Config
 }
 
-func (v *testValidator) ValidateIdentity(ctx context.Context, identity *identity.CallerIdentity) error {
+func (v *testValidator) ValidateIdentity(identity *identity.CallerIdentity) error {
 	if identity == nil ||
 		!stringInSlice(identity.Arn, v.Config.Identity.AllowedCallerArns) ||
 		!stringInSlice(identity.Account, v.Config.Identity.AllowedCallerAccounts) {
+		//nolint:err113
 		return errors.New("identity missing or invalid")
 	}
 	return nil
@@ -34,8 +34,6 @@ func stringInSlice(target string, list []string) bool {
 }
 
 func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
-	ctx := context.Background()
-
 	testConfig := &prbot.Config{
 		Identity: struct {
 			AllowedCallerArns     []string `yaml:"AllowedCallerArns" env:"ALLOWED_CALLER_ARNS"`
@@ -61,11 +59,13 @@ func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 		{
 			name:    "nil identity",
 			input:   nil,
+			//nolint:err113
 			wantErr: errors.New("identity missing or invalid"),
 		},
 		{
 			name:    "invalid arn",
 			input:   &identity.CallerIdentity{Arn: "arn:aws:iam::000000000000:role/InvalidRole", Account: "123456789012"},
+			//nolint:err113
 			wantErr: errors.New("identity missing or invalid"),
 		},
 		{
@@ -77,7 +77,7 @@ func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validator.ValidateIdentity(ctx, tt.input)
+			err := validator.ValidateIdentity(tt.input)
 			if tt.wantErr != nil {
 				assert.Error(t, err)
 				assert.EqualError(t, err, tt.wantErr.Error())
