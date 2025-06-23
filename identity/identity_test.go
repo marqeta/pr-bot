@@ -71,6 +71,7 @@ func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 		{
 			name:    "invalid account",
 			input:   &identity.CallerIdentity{Arn: "arn:aws:iam::123456789012:role/MyRole", Account: "000000000000"},
+			//nolint:err113
 			wantErr: errors.New("identity missing or invalid"),
 		},
 	}
