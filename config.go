@@ -19,10 +19,10 @@ type Config struct {
 	ServiceName string `yaml:"ServiceName" env:"SERVICE_NAME" env-default:"pr-bot" env-description:"Name of the service"`
 	Env         string `yaml:"Env" env:"ENV" env-default:"local" env-description:"stage name; one of local|dev|staging|prod"`
 	Server      struct {
-		Host    string `yaml:"Host" env:"HOST" env-description:"Server host"`
-		Port    int    `yaml:"Port" env:"PORT" env-description:"Server port"`
-		useHTTP bool   `yaml:"UseHTTP" env:"USE_HTTP" env-default:"false" env-description:"Use HTTP"`
-		TLS     struct {
+		Host       string `yaml:"Host" env:"HOST" env-description:"Server host"`
+		Port       int    `yaml:"Port" env:"PORT" env-description:"Server port"`
+		disableTLS bool   `yaml:"DisableTLS" env:"DISABLE_TLS" env-default:"false" env-description:"Disable TLS"`
+		TLS        struct {
 			CertFile string `yaml:"CertFile" env:"CERT_FILE" env-description:"Server certificate file path"`
 			KeyFile  string `yaml:"KeyFile" env:"KEY_FILE" env-description:"File path of server cert's private key"`
 		} `yaml:"TLS" env-prefix:"TLS_"`
