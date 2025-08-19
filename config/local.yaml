@@ -3,6 +3,7 @@ Env: local
 Server:
   Host: localhost
   Port: 9090
+  DisableTLS: true
 GHE:
   Hostname: github-qa.marqeta.com
 ConfigStore:

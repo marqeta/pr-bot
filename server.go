@@ -36,7 +36,7 @@ func NewServer(cfg *Config, routes http.Handler) *Server {
 }
 
 func (srv *Server) Start() {
-	if srv.config.Env == "local" {
+	if srv.config.Server.DisableTLS {
 		srv.startHTTP()
 	} else {
 		srv.startHTTPS()
