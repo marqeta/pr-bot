@@ -21,7 +21,7 @@ type Config struct {
 	Server      struct {
 		Host       string `yaml:"Host" env:"HOST" env-description:"Server host"`
 		Port       int    `yaml:"Port" env:"PORT" env-description:"Server port"`
-		disableTLS bool   `yaml:"DisableTLS" env:"DISABLE_TLS" env-default:"false" env-description:"Disable TLS"`
+		DisableTLS bool   `yaml:"DisableTLS" env:"DISABLE_TLS" env-default:"false" env-description:"Disable TLS"`
 		TLS        struct {
 			CertFile string `yaml:"CertFile" env:"CERT_FILE" env-description:"Server certificate file path"`
 			KeyFile  string `yaml:"KeyFile" env:"KEY_FILE" env-description:"File path of server cert's private key"`
