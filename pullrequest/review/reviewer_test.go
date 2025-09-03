@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
@@ -173,6 +174,32 @@ func Test_reviewer_Approve(t *testing.T) {
 				t.Errorf("reviewer.Approve() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func Test_reviewer_Approve_Sleep(t *testing.T) {
+	ctx := context.Background()
+	mockAPI := gh.NewMockAPI(t)
+	metrics := metrics.NewNoopEmitter()
+	r := review.NewReviewer(mockAPI, metrics)
+
+	// Set up expectations
+	mockAPI.EXPECT().EnableAutoMerge(ctx, sampleID(), githubv4.PullRequestMergeMethodMerge).Return(nil)
+	mockAPI.EXPECT().AddReview(ctx, sampleID(), "LGTM", gh.Approve).Return(nil)
+
+	// Measure the time to verify sleep
+	start := time.Now()
+	err := r.Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
+		MergeMethod: githubv4.PullRequestMergeMethodMerge,
+	})
+	duration := time.Since(start)
+
+	// Verify no error and sleep duration is at least 500ms
+	if err != nil {
+		t.Errorf("Approve() error = %v, want nil", err)
+	}
+	if duration < 500*time.Millisecond {
+		t.Errorf("Sleep duration = %v, want at least 500ms", duration)
 	}
 }
 
