@@ -45,7 +45,7 @@ func (r *reviewer) Approve(ctx context.Context, id id.PR, body string, opts Appr
 		return r.handleAutoMergeError(ctx, id, err)
 	}
 	oplog.Info().Msgf("enabled auto merge on PR")
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 	err = r.api.AddReview(ctx, id, body, gh.Approve)
 	if err != nil {
 		oplog.Err(err).Msgf("error approving PR")
