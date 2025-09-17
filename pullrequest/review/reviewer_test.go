@@ -198,7 +198,7 @@ func Test_reviewer_Approve_Sleep(t *testing.T) {
 	if err != nil {
 		t.Errorf("Approve() error = %v, want nil", err)
 	}
-	if duration < 1*time.Second {
+	if duration < 5 * time.Second {
 		t.Errorf("Sleep duration = %v, want at least 1s", duration)
 	}
 }
