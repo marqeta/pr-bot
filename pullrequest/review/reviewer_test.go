@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
+	"github.com/google/go-github/v50/github"
 	gh "github.com/marqeta/pr-bot/github"
 	"github.com/marqeta/pr-bot/id"
 	"github.com/marqeta/pr-bot/metrics"
@@ -166,7 +166,7 @@ func Test_reviewer_Approve(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockAPI := gh.NewMockAPI(t)
 			metrics := metrics.NewNoopEmitter()
-			r := review.NewReviewer(mockAPI, metrics)
+			r := review.NewReviewer(mockAPI, metrics, "test-service-account")
 			tt.args.setExpectations(mockAPI)
 			if err := r.Approve(ctx, tt.args.id, tt.args.body, review.ApproveOptions{
 				MergeMethod: tt.args.mergeMethod,
@@ -177,31 +177,6 @@ func Test_reviewer_Approve(t *testing.T) {
 	}
 }
 
-func Test_reviewer_Approve_Sleep(t *testing.T) {
-	ctx := context.Background()
-	mockAPI := gh.NewMockAPI(t)
-	metrics := metrics.NewNoopEmitter()
-	r := review.NewReviewer(mockAPI, metrics)
-
-	// Set up expectations
-	mockAPI.EXPECT().EnableAutoMerge(ctx, sampleID(), githubv4.PullRequestMergeMethodMerge).Return(nil)
-	mockAPI.EXPECT().AddReview(ctx, sampleID(), "LGTM", gh.Approve).Return(nil)
-
-	// Measure the time to verify sleep
-	start := time.Now()
-	err := r.Approve(ctx, sampleID(), "LGTM", review.ApproveOptions{
-		MergeMethod: githubv4.PullRequestMergeMethodMerge,
-	})
-	duration := time.Since(start)
-
-	// Verify no error and sleep duration is at least 1 second
-	if err != nil {
-		t.Errorf("Approve() error = %v, want nil", err)
-	}
-	if duration < 5 * time.Second {
-		t.Errorf("Sleep duration = %v, want at least 1s", duration)
-	}
-}
 
 func Test_reviewer_Comment(t *testing.T) {
 	ctx := context.Background()
@@ -224,6 +199,7 @@ func Test_reviewer_Comment(t *testing.T) {
 				id:   sampleID(),
 				body: "random body",
 				setExpectations: func(d *gh.MockAPI) {
+					d.EXPECT().ListReviews(ctx, sampleID()).Return([]*github.PullRequestReview{}, nil)
 					d.EXPECT().AddReview(ctx, sampleID(), "random body", gh.Comment).
 						Return(nil)
 				},
@@ -236,6 +212,7 @@ func Test_reviewer_Comment(t *testing.T) {
 				id:   sampleID(),
 				body: "random body",
 				setExpectations: func(d *gh.MockAPI) {
+					d.EXPECT().ListReviews(ctx, sampleID()).Return([]*github.PullRequestReview{}, nil)
 					d.EXPECT().AddReview(ctx, sampleID(), "random body", gh.Comment).
 						Return(errRandom).Once()
 				},
@@ -247,7 +224,7 @@ func Test_reviewer_Comment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockAPI := gh.NewMockAPI(t)
 			metrics := metrics.NewNoopEmitter()
-			r := review.NewReviewer(mockAPI, metrics)
+			r := review.NewReviewer(mockAPI, metrics, "test-service-account")
 			tt.args.setExpectations(mockAPI)
 			if err := r.Comment(ctx, tt.args.id, tt.args.body); (err != nil) != tt.wantErr {
 				t.Errorf("reviewer.Comment() error = %v, wantErr %v", err, tt.wantErr)
@@ -300,10 +277,110 @@ func Test_reviewer_RequestChanges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockAPI := gh.NewMockAPI(t)
 			metrics := metrics.NewNoopEmitter()
-			r := review.NewReviewer(mockAPI, metrics)
+			r := review.NewReviewer(mockAPI, metrics, "test-service-account")
 			tt.args.setExpectations(mockAPI)
 			if err := r.RequestChanges(ctx, tt.args.id, tt.args.body); (err != nil) != tt.wantErr {
 				t.Errorf("reviewer.RequestChanges() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_reviewer_Comment_WithDismissChangesRequested(t *testing.T) {
+	ctx := context.Background()
+	//nolint:goerr113
+	errRandom := errors.New("random error")
+	
+	// Create a sample review that should be dismissed
+	changesRequestedReview := &github.PullRequestReview{
+		ID:    github.Int64(123),
+		State: github.String("CHANGES_REQUESTED"),
+		User: &github.User{
+			Login: github.String("test-service-account"),
+		},
+	}
+	
+	// Create a review from a different user that should not be dismissed
+	otherUserReview := &github.PullRequestReview{
+		ID:    github.Int64(456),
+		State: github.String("CHANGES_REQUESTED"),
+		User: &github.User{
+			Login: github.String("other-user"),
+		},
+	}
+	
+	// Create a review from service account but different state
+	approvedReview := &github.PullRequestReview{
+		ID:    github.Int64(789),
+		State: github.String("APPROVED"),
+		User: &github.User{
+			Login: github.String("test-service-account"),
+		},
+	}
+	
+	type args struct {
+		id              id.PR
+		body            string
+		setExpectations func(d *gh.MockAPI)
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "Should dismiss CHANGES_REQUESTED reviews from service account before commenting",
+			args: args{
+				id:   sampleID(),
+				body: "random body",
+				setExpectations: func(d *gh.MockAPI) {
+					d.EXPECT().ListReviews(ctx, sampleID()).Return([]*github.PullRequestReview{
+						changesRequestedReview,
+						otherUserReview,
+						approvedReview,
+					}, nil)
+					d.EXPECT().DismissReview(ctx, sampleID(), int64(123), "Review dismissed due to follow-up comment").Return(nil)
+					d.EXPECT().AddReview(ctx, sampleID(), "random body", gh.Comment).Return(nil)
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Should continue with comment even if dismissal fails",
+			args: args{
+				id:   sampleID(),
+				body: "random body",
+				setExpectations: func(d *gh.MockAPI) {
+					d.EXPECT().ListReviews(ctx, sampleID()).Return([]*github.PullRequestReview{
+						changesRequestedReview,
+					}, nil)
+					d.EXPECT().DismissReview(ctx, sampleID(), int64(123), "Review dismissed due to follow-up comment").Return(errRandom)
+					d.EXPECT().AddReview(ctx, sampleID(), "random body", gh.Comment).Return(nil)
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Should handle error when ListReviews fails",
+			args: args{
+				id:   sampleID(),
+				body: "random body",
+				setExpectations: func(d *gh.MockAPI) {
+					d.EXPECT().ListReviews(ctx, sampleID()).Return(nil, errRandom)
+					d.EXPECT().AddReview(ctx, sampleID(), "random body", gh.Comment).Return(nil)
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockAPI := gh.NewMockAPI(t)
+			metrics := metrics.NewNoopEmitter()
+			r := review.NewReviewer(mockAPI, metrics, "test-service-account")
+			tt.args.setExpectations(mockAPI)
+			if err := r.Comment(ctx, tt.args.id, tt.args.body); (err != nil) != tt.wantErr {
+				t.Errorf("reviewer.Comment() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/go-chi/httplog"
 	pe "github.com/marqeta/pr-bot/errors"
@@ -32,8 +31,9 @@ type Reviewer interface {
 }
 
 type reviewer struct {
-	api     gh.API
-	metrics metrics.Emitter
+	api            gh.API
+	metrics        metrics.Emitter
+	serviceAccount string
 }
 
 // Approve implements Reviewer.
@@ -45,7 +45,7 @@ func (r *reviewer) Approve(ctx context.Context, id id.PR, body string, opts Appr
 		return r.handleAutoMergeError(ctx, id, err)
 	}
 	oplog.Info().Msgf("enabled auto merge on PR")
-	time.Sleep(5 * time.Second)
+
 	err = r.api.AddReview(ctx, id, body, gh.Approve)
 	if err != nil {
 		oplog.Err(err).Msgf("error approving PR")
@@ -64,7 +64,15 @@ func (r *reviewer) Approve(ctx context.Context, id id.PR, body string, opts Appr
 // Comment implements Reviewer.
 func (r *reviewer) Comment(ctx context.Context, id id.PR, body string) error {
 	oplog := httplog.LogEntry(ctx)
-	err := r.api.AddReview(ctx, id, body, gh.Comment)
+	
+	// Dismiss any existing CHANGES_REQUESTED reviews before posting the comment
+	err := r.dismissChangesRequestedReviews(ctx, id)
+	if err != nil {
+		oplog.Err(err).Msgf("error dismissing CHANGES_REQUESTED reviews for PR %v", id.URL)
+		// Continue with comment even if dismissal fails
+	}
+	
+	err = r.api.AddReview(ctx, id, body, gh.Comment)
 	if err != nil {
 		oplog.Err(err).Msgf("error reviewing PR with reviewType:comment %v", id.URL)
 		ae := pe.ServiceFault(ctx, "error reviewing PR with reviewType:comment", err)
@@ -95,8 +103,37 @@ func (r *reviewer) RequestChanges(ctx context.Context, id id.PR, body string) er
 	return nil
 }
 
-func NewReviewer(dao gh.API, metrics metrics.Emitter) Reviewer {
-	return &reviewer{api: dao, metrics: metrics}
+func NewReviewer(dao gh.API, metrics metrics.Emitter, serviceAccount string) Reviewer {
+	return &reviewer{api: dao, metrics: metrics, serviceAccount: serviceAccount}
+}
+
+// dismissChangesRequestedReviews dismisses any existing CHANGES_REQUESTED reviews from the service account on the PR
+func (r *reviewer) dismissChangesRequestedReviews(ctx context.Context, id id.PR) error {
+	oplog := httplog.LogEntry(ctx)
+	
+	// Get all reviews for the PR
+	reviews, err := r.api.ListReviews(ctx, id)
+	if err != nil {
+		return fmt.Errorf("error listing reviews: %w", err)
+	}
+	
+	// Find and dismiss any CHANGES_REQUESTED reviews from the service account
+	for _, review := range reviews {
+		if review.GetState() == "CHANGES_REQUESTED" && review.User.GetLogin() == r.serviceAccount {
+			oplog.Info().Msgf("dismissing CHANGES_REQUESTED review %d from %s for PR %v", review.GetID(), r.serviceAccount, id.URL)
+			
+			dismissMessage := "Review dismissed due to follow-up comment"
+			err := r.api.DismissReview(ctx, id, review.GetID(), dismissMessage)
+			if err != nil {
+				oplog.Err(err).Msgf("error dismissing review %d for PR %v", review.GetID(), id.URL)
+				// Continue with other reviews even if one fails
+			} else {
+				oplog.Info().Msgf("successfully dismissed review %d from %s for PR %v", review.GetID(), r.serviceAccount, id.URL)
+			}
+		}
+	}
+	
+	return nil
 }
 
 func (r *reviewer) handleAutoMergeError(ctx context.Context, id id.PR, err error) error {

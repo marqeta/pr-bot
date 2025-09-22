@@ -57,4 +57,5 @@ type API interface {
 	GetPullRequest(ctx context.Context, id id.PR) (*github.PullRequest, error)
 	GetRepository(ctx context.Context, id id.PR) (*github.Repository, error)
 	GetOrganization(ctx context.Context, id id.PR) (*github.Organization, error)
+	DismissReview(ctx context.Context, id id.PR, reviewID int64, message string) error
 }

@@ -814,6 +814,55 @@ func (_c *MockAPI_ListReviews_Call) RunAndReturn(run func(context.Context, id.PR
 	return _c
 }
 
+// DismissReview provides a mock function with given fields: ctx, _a1, reviewID, message
+func (_m *MockAPI) DismissReview(ctx context.Context, _a1 id.PR, reviewID int64, message string) error {
+	ret := _m.Called(ctx, _a1, reviewID, message)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DismissReview")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR, int64, string) error); ok {
+		r0 = rf(ctx, _a1, reviewID, message)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockAPI_DismissReview_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DismissReview'
+type MockAPI_DismissReview_Call struct {
+	*mock.Call
+}
+
+// DismissReview is a helper method to define mock.On call
+//   - ctx context.Context
+//   - _a1 id.PR
+//   - reviewID int64
+//   - message string
+func (_e *MockAPI_Expecter) DismissReview(ctx interface{}, _a1 interface{}, reviewID interface{}, message interface{}) *MockAPI_DismissReview_Call {
+	return &MockAPI_DismissReview_Call{Call: _e.mock.On("DismissReview", ctx, _a1, reviewID, message)}
+}
+
+func (_c *MockAPI_DismissReview_Call) Run(run func(ctx context.Context, _a1 id.PR, reviewID int64, message string)) *MockAPI_DismissReview_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(id.PR), args[2].(int64), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockAPI_DismissReview_Call) Return(_a0 error) *MockAPI_DismissReview_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockAPI_DismissReview_Call) RunAndReturn(run func(context.Context, id.PR, int64, string) error) *MockAPI_DismissReview_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockAPI creates a new instance of MockAPI. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockAPI(t interface {

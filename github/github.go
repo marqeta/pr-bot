@@ -247,6 +247,19 @@ func (gh *githubDao) GetOrganization(ctx context.Context, id id.PR) (*github.Org
 	return org, nil
 }
 
+// DismissReview implements API.
+func (gh *githubDao) DismissReview(ctx context.Context, id id.PR, reviewID int64, message string) error {
+	_, resp, err := gh.v3.PullRequests.DismissReview(ctx, id.Owner, id.Repo, id.Number, reviewID, 
+		&github.PullRequestReviewDismissalRequest{
+			Message: &message,
+		})
+	if err != nil {
+		return err
+	}
+	gh.emitTokenExpiration(ctx, resp)
+	return nil
+}
+
 func (gh *githubDao) emitTokenExpiration(ctx context.Context, resp *github.Response) {
 	if resp == nil {
 		return
