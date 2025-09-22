@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/go-chi/httplog"
 	pe "github.com/marqeta/pr-bot/errors"
@@ -45,7 +44,7 @@ func (r *reviewer) Approve(ctx context.Context, id id.PR, body string, opts Appr
 		return r.handleAutoMergeError(ctx, id, err)
 	}
 	oplog.Info().Msgf("enabled auto merge on PR")
-	time.Sleep(5 * time.Second)
+
 	err = r.api.AddReview(ctx, id, body, gh.Approve)
 	if err != nil {
 		oplog.Err(err).Msgf("error approving PR")
