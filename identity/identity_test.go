@@ -57,20 +57,20 @@ func TestAllowAllValidator_ValidateIdentity(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "nil identity",
-			input:   nil,
+			name:  "nil identity",
+			input: nil,
 			//nolint:err113
 			wantErr: errors.New("identity missing or invalid"),
 		},
 		{
-			name:    "invalid arn",
-			input:   &identity.CallerIdentity{Arn: "arn:aws:iam::000000000000:role/InvalidRole", Account: "123456789012"},
+			name:  "invalid arn",
+			input: &identity.CallerIdentity{Arn: "arn:aws:iam::000000000000:role/InvalidRole", Account: "123456789012"},
 			//nolint:err113
 			wantErr: errors.New("identity missing or invalid"),
 		},
 		{
-			name:    "invalid account",
-			input:   &identity.CallerIdentity{Arn: "arn:aws:iam::123456789012:role/MyRole", Account: "000000000000"},
+			name:  "invalid account",
+			input: &identity.CallerIdentity{Arn: "arn:aws:iam::123456789012:role/MyRole", Account: "000000000000"},
 			//nolint:err113
 			wantErr: errors.New("identity missing or invalid"),
 		},
