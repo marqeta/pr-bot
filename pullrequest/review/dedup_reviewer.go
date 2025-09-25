@@ -89,3 +89,7 @@ func (d *DedupReviewer) checkForReview(reviews []*github.PullRequestReview, revi
 	}
 	return false
 }
+
+func (d *DedupReviewer) Dismiss(ctx context.Context, id id.PR, body string) error {
+	return d.delegate.Dismiss(ctx, id, body)
+}

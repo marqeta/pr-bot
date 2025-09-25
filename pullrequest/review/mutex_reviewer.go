@@ -94,3 +94,12 @@ func NewMutexReviewer(delegate Reviewer, locker Locker) Reviewer {
 		locker:   locker,
 	}
 }
+
+func (r *mutexReviewer) Dismiss(ctx context.Context, id id.PR, body string) error {
+	lock, err := r.acquireLock(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer r.releaseLock(ctx, lock, id)
+	return r.delegate.Dismiss(ctx, id, body)
+}

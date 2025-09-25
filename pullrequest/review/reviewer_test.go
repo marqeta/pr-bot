@@ -165,7 +165,7 @@ func Test_reviewer_Approve(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockAPI := gh.NewMockAPI(t)
 			metrics := metrics.NewNoopEmitter()
-			r := review.NewReviewer(mockAPI, metrics)
+			r := review.NewReviewer(mockAPI, metrics, "test-service-account")
 			tt.args.setExpectations(mockAPI)
 			if err := r.Approve(ctx, tt.args.id, tt.args.body, review.ApproveOptions{
 				MergeMethod: tt.args.mergeMethod,
@@ -220,7 +220,7 @@ func Test_reviewer_Comment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockAPI := gh.NewMockAPI(t)
 			metrics := metrics.NewNoopEmitter()
-			r := review.NewReviewer(mockAPI, metrics)
+			r := review.NewReviewer(mockAPI, metrics, "test-service-account")
 			tt.args.setExpectations(mockAPI)
 			if err := r.Comment(ctx, tt.args.id, tt.args.body); (err != nil) != tt.wantErr {
 				t.Errorf("reviewer.Comment() error = %v, wantErr %v", err, tt.wantErr)
@@ -273,7 +273,7 @@ func Test_reviewer_RequestChanges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockAPI := gh.NewMockAPI(t)
 			metrics := metrics.NewNoopEmitter()
-			r := review.NewReviewer(mockAPI, metrics)
+			r := review.NewReviewer(mockAPI, metrics, "test-service-account")
 			tt.args.setExpectations(mockAPI)
 			if err := r.RequestChanges(ctx, tt.args.id, tt.args.body); (err != nil) != tt.wantErr {
 				t.Errorf("reviewer.RequestChanges() error = %v, wantErr %v", err, tt.wantErr)

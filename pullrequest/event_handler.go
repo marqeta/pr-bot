@@ -94,6 +94,8 @@ func (eh *eventHandler) EvalAndReview(ctx context.Context, id id.PR, ghe input.G
 		return eh.reviewer.RequestChanges(ctx, id, opaResult.Review.Body)
 	case types.Comment:
 		return eh.reviewer.Comment(ctx, id, opaResult.Review.Body)
+	case types.Dismiss:
+		return eh.reviewer.Dismiss(ctx, id, opaResult.Review.Body)
 	default:
 		oplog.Info().Msg("skipping review")
 	}

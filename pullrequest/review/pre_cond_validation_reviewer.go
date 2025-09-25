@@ -43,3 +43,7 @@ func NewPreCondValidationReviewer(delegate Reviewer) Reviewer {
 		delegate: delegate,
 	}
 }
+
+func (p *preCondValidationReviewer) Dismiss(ctx context.Context, id id.PR, body string) error {
+	return p.delegate.Dismiss(ctx, id, body)
+}

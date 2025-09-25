@@ -77,6 +77,24 @@ func (_c *MockAPI_AddReview_Call) RunAndReturn(run func(context.Context, id.PR, 
 	return _c
 }
 
+// DismissReview provides a mock function with given fields: ctx, _a1, reviewID, message
+func (_m *MockAPI) DismissReview(ctx context.Context, _a1 id.PR, reviewID int64, message string) error {
+	ret := _m.Called(ctx, _a1, reviewID, message)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DismissReview")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR, int64, string) error); ok {
+		r0 = rf(ctx, _a1, reviewID, message)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // EnableAutoMerge provides a mock function with given fields: ctx, _a1, method
 func (_m *MockAPI) EnableAutoMerge(ctx context.Context, _a1 id.PR, method githubv4.PullRequestMergeMethod) error {
 	ret := _m.Called(ctx, _a1, method)

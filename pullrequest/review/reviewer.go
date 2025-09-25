@@ -28,11 +28,13 @@ type Reviewer interface {
 	Approve(ctx context.Context, id id.PR, body string, opts ApproveOptions) error
 	RequestChanges(ctx context.Context, id id.PR, body string) error
 	Comment(ctx context.Context, id id.PR, body string) error
+	Dismiss(ctx context.Context, id id.PR, body string) error
 }
 
 type reviewer struct {
-	api     gh.API
-	metrics metrics.Emitter
+	api           gh.API
+	metrics       metrics.Emitter
+	serviceAccount string
 }
 
 // Approve implements Reviewer.
@@ -94,8 +96,46 @@ func (r *reviewer) RequestChanges(ctx context.Context, id id.PR, body string) er
 	return nil
 }
 
-func NewReviewer(dao gh.API, metrics metrics.Emitter) Reviewer {
-	return &reviewer{api: dao, metrics: metrics}
+// Dismiss implements Reviewer.
+func (r *reviewer) Dismiss(ctx context.Context, id id.PR, body string) error {
+	oplog := httplog.LogEntry(ctx)
+	
+	// Get existing reviews to find CHANGES_REQUESTED reviews to dismiss
+	reviews, err := r.api.ListReviews(ctx, id)
+	if err != nil {
+		oplog.Err(err).Msgf("error listing reviews for PR %v", id.URL)
+		ae := pe.ServiceFault(ctx, "Error listing reviews for PR", err)
+		return ae
+	}
+	
+	// Find and dismiss only CHANGES_REQUESTED reviews from the configured service account
+	dismissed := false
+	for _, review := range reviews {
+		if review.GetState() == "CHANGES_REQUESTED" && 
+		   review.GetUser().GetLogin() == r.serviceAccount {
+			err = r.api.DismissReview(ctx, id, review.GetID(), body)
+			if err != nil {
+				oplog.Err(err).Msgf("error dismissing review %d for PR %v", review.GetID(), id.URL)
+				ae := pe.ServiceFault(ctx, "Error dismissing review", err)
+				return ae
+			}
+			dismissed = true
+			oplog.Info().Msgf("dismissed review %d from %s for PR %v", review.GetID(), r.serviceAccount, id.URL)
+		}
+	}
+	
+	if dismissed {
+		tags := append(id.ToTags(), fmt.Sprintf("reviewType:%s", "dismiss"))
+		r.metrics.EmitDist(ctx, "reviewedPRs", 1.0, tags)
+		r.metrics.EmitDist(ctx, "dismissedPRs", 1.0, tags)
+		oplog.Info().Msgf("reviewed PR reviewType:dismiss")
+	}
+	
+	return nil
+}
+
+func NewReviewer(dao gh.API, metrics metrics.Emitter, serviceAccount string) Reviewer {
+	return &reviewer{api: dao, metrics: metrics, serviceAccount: serviceAccount}
 }
 
 func (r *reviewer) handleAutoMergeError(ctx context.Context, id id.PR, err error) error {

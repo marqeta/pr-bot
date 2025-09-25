@@ -52,3 +52,7 @@ func NewRateLimitedReviewer(delegate Reviewer, api gh.API, throttler rate.Thrott
 		throttler: throttler,
 	}
 }
+
+func (r *rateLimitedReviewer) Dismiss(ctx context.Context, id id.PR, body string) error {
+	return r.delegate.Dismiss(ctx, id, body)
+}

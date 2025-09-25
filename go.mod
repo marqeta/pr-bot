@@ -19,6 +19,7 @@ require (
 	github.com/go-chi/httplog v0.3.2
 	github.com/go-chi/render v1.0.3
 	github.com/google/go-github/v50 v50.2.0
+	github.com/google/uuid v1.6.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/jonboulle/clockwork v0.4.0
 	github.com/mennanov/limiters v1.2.2
@@ -75,7 +76,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/consul/api v1.26.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
