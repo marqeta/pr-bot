@@ -207,6 +207,19 @@ func (gh *githubDao) AddReview(ctx context.Context, id id.PR, summary, event str
 	return nil
 }
 
+// DismissReview implements API
+func (gh *githubDao) DismissReview(ctx context.Context, id id.PR, reviewID int64, message string) error {
+	_, resp, err := gh.v3.PullRequests.DismissReview(ctx, id.Owner, id.Repo, id.Number, reviewID,
+		&github.PullRequestReviewDismissalRequest{
+			Message: &message,
+		})
+	if err != nil {
+		return err
+	}
+	gh.emitTokenExpiration(ctx, resp)
+	return nil
+}
+
 // IssueCommentForError implements Dao
 func (gh *githubDao) IssueCommentForError(ctx context.Context, id id.PR, apiError pe.APIError) error {
 	b, err := json.MarshalIndent(apiError, "", "  ")

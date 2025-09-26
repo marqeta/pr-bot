@@ -45,6 +45,7 @@ More details on PR bot policy evaluation: <a href="%v">link</a>
 type API interface {
 	ListReviews(ctx context.Context, id id.PR) ([]*github.PullRequestReview, error)
 	AddReview(ctx context.Context, id id.PR, summary, event string) error
+	DismissReview(ctx context.Context, id id.PR, reviewID int64, message string) error
 	EnableAutoMerge(ctx context.Context, id id.PR, method githubv4.PullRequestMergeMethod) error
 	IssueComment(ctx context.Context, id id.PR, comment string) error
 	IssueCommentForError(ctx context.Context, id id.PR, err pe.APIError) error

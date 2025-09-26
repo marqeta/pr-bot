@@ -17,6 +17,7 @@ const (
 	Approve
 	Comment
 	RequestChanges
+	Dismiss
 )
 
 var (
@@ -25,6 +26,7 @@ var (
 		1: "APPROVE",
 		2: "COMMENT",
 		3: "REQUEST_CHANGES",
+		4: "DISMISS",
 	}
 	reviewTypeValues = reverseMap(reviewTypeNames)
 
@@ -33,6 +35,7 @@ var (
 		1: "APPROVED",
 		2: "COMMENTED",
 		3: "CHANGES_REQUESTED",
+		4: "DISMISSED",
 	}
 	reviewStateValues = reverseMap(reviewStateNames)
 )

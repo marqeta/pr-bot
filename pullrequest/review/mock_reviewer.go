@@ -137,6 +137,24 @@ func (_m *MockReviewer) RequestChanges(ctx context.Context, _a1 id.PR, body stri
 	return r0
 }
 
+// Dismiss provides a mock function with given fields: ctx, _a1, body
+func (_m *MockReviewer) Dismiss(ctx context.Context, _a1 id.PR, body string) error {
+	ret := _m.Called(ctx, _a1, body)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Dismiss")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, id.PR, string) error); ok {
+		r0 = rf(ctx, _a1, body)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // MockReviewer_RequestChanges_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequestChanges'
 type MockReviewer_RequestChanges_Call struct {
 	*mock.Call

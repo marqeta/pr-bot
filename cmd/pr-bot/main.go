@@ -171,7 +171,7 @@ func downloadOCIArtifacts(svc *prbot.Service, cfg *prbot.Config) {
 func setupReviewer(svc *prbot.Service, cfg *prbot.Config, api gh.API) review.Reviewer {
 	log.Info().Msg("Setting up reviewer")
 	// mutex -> dedup -> precond -> rate limited -> reviewer
-	base := review.NewReviewer(api, svc.Metrics)
+	base := review.NewReviewer(api, svc.Metrics, cfg.GHE.ServiceAccount)
 	throttler := setupThrottlers(svc, cfg)
 	rateLimited := review.NewRateLimitedReviewer(base, api, throttler)
 	precond := review.NewPreCondValidationReviewer(rateLimited)
