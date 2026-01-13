@@ -1,4 +1,4 @@
-FROM debian:12.9-slim
+FROM debian:12.13-slim
 
 #TODO add build and version info
 
