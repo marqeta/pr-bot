@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/open-policy-agent/opa/v1/plugins"
@@ -21,6 +22,7 @@ import (
 // ParseConfig validates the config and injects default values. This is
 // for the legacy single bundle configuration. This will add the bundle
 // to the `Bundles` map to provide compatibility with newer clients.
+//
 // Deprecated: Use `ParseBundlesConfig` with `bundles` OPA config option instead
 func ParseConfig(config []byte, services []string) (*Config, error) {
 	if config == nil {
@@ -237,10 +239,8 @@ func (*Config) getServiceFromList(service string, services []string) (string, er
 	if service == "" && len(services) != 0 {
 		return services[0], nil
 	}
-	for _, svc := range services {
-		if svc == service {
-			return service, nil
-		}
+	if slices.Contains(services, service) {
+		return service, nil
 	}
 	return service, fmt.Errorf("service name %q not found", service)
 }

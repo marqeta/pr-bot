@@ -2,15 +2,21 @@ package limiters
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 )
@@ -48,25 +54,32 @@ func NewFixedWindow(capacity int64, rate time.Duration, fixedWindowIncrementer F
 func (f *FixedWindow) Limit(ctx context.Context) (time.Duration, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	now := f.clock.Now()
+
 	window := now.Truncate(f.rate)
 	if f.window != window {
 		f.window = window
 		f.overflow = false
 	}
+
 	ttl := f.rate - now.Sub(window)
 	if f.overflow {
 		// If the window is already overflowed don't increment the counter.
 		return ttl, ErrLimitExhausted
 	}
+
 	c, err := f.backend.Increment(ctx, window, ttl)
 	if err != nil {
 		return 0, err
 	}
+
 	if c > f.capacity {
 		f.overflow = true
+
 		return ttl, ErrLimitExhausted
 	}
+
 	return 0, nil
 }
 
@@ -86,37 +99,46 @@ func NewFixedWindowInMemory() *FixedWindowInMemory {
 func (f *FixedWindowInMemory) Increment(ctx context.Context, window time.Time, _ time.Duration) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	if window != f.window {
 		f.c = 0
 		f.window = window
 	}
+
 	f.c++
+
 	return f.c, ctx.Err()
 }
 
 // FixedWindowRedis implements FixedWindow in Redis.
 type FixedWindowRedis struct {
-	cli    *redis.Client
+	cli    redis.UniversalClient
 	prefix string
 }
 
 // NewFixedWindowRedis returns a new instance of FixedWindowRedis.
 // Prefix is the key prefix used to store all the keys used in this implementation in Redis.
-func NewFixedWindowRedis(cli *redis.Client, prefix string) *FixedWindowRedis {
+func NewFixedWindowRedis(cli redis.UniversalClient, prefix string) *FixedWindowRedis {
 	return &FixedWindowRedis{cli: cli, prefix: prefix}
 }
 
 // Increment increments the window's counter in Redis.
 func (f *FixedWindowRedis) Increment(ctx context.Context, window time.Time, ttl time.Duration) (int64, error) {
-	var incr *redis.IntCmd
-	var err error
+	var (
+		incr *redis.IntCmd
+		err  error
+	)
+
 	done := make(chan struct{})
+
 	go func() {
 		defer close(done)
+
 		_, err = f.cli.Pipelined(ctx, func(pipeliner redis.Pipeliner) error {
 			key := fmt.Sprintf("%d", window.UnixNano())
 			incr = pipeliner.Incr(ctx, redisKey(f.prefix, key))
 			pipeliner.PExpire(ctx, redisKey(f.prefix, key), ttl)
+
 			return nil
 		})
 	}()
@@ -126,7 +148,61 @@ func (f *FixedWindowRedis) Increment(ctx context.Context, window time.Time, ttl 
 		if err != nil {
 			return 0, errors.Wrap(err, "redis transaction failed")
 		}
+
 		return incr.Val(), incr.Err()
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+// FixedWindowMemcached implements FixedWindow in Memcached.
+type FixedWindowMemcached struct {
+	cli    *memcache.Client
+	prefix string
+}
+
+// NewFixedWindowMemcached returns a new instance of FixedWindowMemcached.
+// Prefix is the key prefix used to store all the keys used in this implementation in Memcached.
+func NewFixedWindowMemcached(cli *memcache.Client, prefix string) *FixedWindowMemcached {
+	return &FixedWindowMemcached{cli: cli, prefix: prefix}
+}
+
+// Increment increments the window's counter in Memcached.
+func (f *FixedWindowMemcached) Increment(ctx context.Context, window time.Time, ttl time.Duration) (int64, error) {
+	var (
+		newValue uint64
+		err      error
+	)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		key := fmt.Sprintf("%s:%d", f.prefix, window.UnixNano())
+
+		newValue, err = f.cli.Increment(key, 1)
+		if err != nil && errors.Is(err, memcache.ErrCacheMiss) {
+			newValue = 1
+			item := &memcache.Item{
+				Key:   key,
+				Value: []byte(strconv.FormatUint(newValue, 10)),
+			}
+			err = f.cli.Add(item)
+		}
+	}()
+
+	select {
+	case <-done:
+		if err != nil {
+			if errors.Is(err, memcache.ErrNotStored) {
+				return f.Increment(ctx, window, ttl)
+			}
+
+			return 0, errors.Wrap(err, "failed to Increment or Add")
+		}
+
+		return int64(newValue), err
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
@@ -144,13 +220,30 @@ type FixedWindowDynamoDB struct {
 //
 // TableProps describe the table that this backend should work with. This backend requires the following on the table:
 // * SortKey
-// * TTL
+// * TTL.
 func NewFixedWindowDynamoDB(client *dynamodb.Client, partitionKey string, props DynamoDBTableProperties) *FixedWindowDynamoDB {
 	return &FixedWindowDynamoDB{
 		client:       client,
 		partitionKey: partitionKey,
 		tableProps:   props,
 	}
+}
+
+type contextKey int
+
+var fixedWindowDynamoDBPartitionKey contextKey
+
+// NewFixedWindowDynamoDBContext creates a context for FixedWindowDynamoDB with a partition key.
+//
+// This context can be used to control the partition key per-request.
+//
+// Deprecated: NewFixedWindowDynamoDBContext is deprecated and will be removed in future versions.
+// Separate FixedWindow rate limiters should be used for different partition keys instead.
+// Consider using the `Registry` to manage multiple FixedWindow instances with different partition keys.
+func NewFixedWindowDynamoDBContext(ctx context.Context, partitionKey string) context.Context {
+	log.Printf("DEPRECATED: NewFixedWindowDynamoDBContext is deprecated and will be removed in future versions.")
+
+	return context.WithValue(ctx, fixedWindowDynamoDBPartitionKey, partitionKey)
 }
 
 const (
@@ -160,15 +253,24 @@ const (
 
 // Increment increments the window's counter in DynamoDB.
 func (f *FixedWindowDynamoDB) Increment(ctx context.Context, window time.Time, ttl time.Duration) (int64, error) {
-	var resp *dynamodb.UpdateItemOutput
-	var err error
+	var (
+		resp *dynamodb.UpdateItemOutput
+		err  error
+	)
 
 	done := make(chan struct{})
+
 	go func() {
 		defer close(done)
+
+		partitionKey := f.partitionKey
+		if key, ok := ctx.Value(fixedWindowDynamoDBPartitionKey).(string); ok {
+			partitionKey = key
+		}
+
 		resp, err = f.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 			Key: map[string]types.AttributeValue{
-				f.tableProps.PartitionKeyName: &types.AttributeValueMemberS{Value: f.partitionKey},
+				f.tableProps.PartitionKeyName: &types.AttributeValueMemberS{Value: partitionKey},
 				f.tableProps.SortKeyName:      &types.AttributeValueMemberS{Value: strconv.FormatInt(window.UnixNano(), 10)},
 			},
 			UpdateExpression: aws.String(fixedWindowDynamoDBUpdateExpression),
@@ -197,10 +299,77 @@ func (f *FixedWindowDynamoDB) Increment(ctx context.Context, window time.Time, t
 	}
 
 	var count float64
+
 	err = attributevalue.Unmarshal(resp.Attributes[dynamodbWindowCountKey], &count)
 	if err != nil {
 		return 0, errors.Wrap(err, "unmarshal of dynamodb attribute value failed")
 	}
 
 	return int64(count), nil
+}
+
+// FixedWindowCosmosDB implements FixedWindow in CosmosDB.
+type FixedWindowCosmosDB struct {
+	client       *azcosmos.ContainerClient
+	partitionKey string
+}
+
+// NewFixedWindowCosmosDB creates a new instance of FixedWindowCosmosDB.
+// PartitionKey is the key used for partitioning data into multiple partitions.
+func NewFixedWindowCosmosDB(client *azcosmos.ContainerClient, partitionKey string) *FixedWindowCosmosDB {
+	return &FixedWindowCosmosDB{
+		client:       client,
+		partitionKey: partitionKey,
+	}
+}
+
+func (f *FixedWindowCosmosDB) Increment(ctx context.Context, window time.Time, ttl time.Duration) (int64, error) {
+	id := strconv.FormatInt(window.UnixNano(), 10)
+	tmp := cosmosItem{
+		ID:           id,
+		PartitionKey: f.partitionKey,
+		Count:        1,
+		TTL:          int32(ttl),
+	}
+
+	ops := azcosmos.PatchOperations{}
+	ops.AppendIncrement(`/Count`, 1)
+
+	patchResp, err := f.client.PatchItem(ctx, azcosmos.NewPartitionKey().AppendString(f.partitionKey), id, ops, &azcosmos.ItemOptions{
+		EnableContentResponseOnWrite: true,
+	})
+	if err == nil {
+		// value exists and was updated
+		err = json.Unmarshal(patchResp.Value, &tmp)
+		if err != nil {
+			return 0, errors.Wrap(err, "unmarshal of cosmos value failed")
+		}
+
+		return tmp.Count, nil
+	}
+
+	var respErr *azcore.ResponseError
+	if !errors.As(err, &respErr) || (respErr.StatusCode != http.StatusNotFound && respErr.StatusCode != http.StatusBadRequest) {
+		return 0, errors.Wrap(err, `patch of cosmos value failed`)
+	}
+
+	newValue, err := json.Marshal(tmp)
+	if err != nil {
+		return 0, errors.Wrap(err, "marshal of cosmos value failed")
+	}
+
+	// Try to CreateItem. If it fails with Conflict, it means the item exists (and Patch failed with 400), so we fallback to RMW.
+	_, err = f.client.CreateItem(ctx, azcosmos.NewPartitionKey().AppendString(f.partitionKey), newValue, &azcosmos.ItemOptions{
+		SessionToken: patchResp.SessionToken,
+	})
+	if err != nil {
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusConflict {
+			// Fallback to Read-Modify-Write
+			return incrementCosmosItemRMW(ctx, f.client, f.partitionKey, id, ttl)
+		}
+
+		return 0, errors.Wrap(err, "upsert of cosmos value failed")
+	}
+
+	return tmp.Count, nil
 }

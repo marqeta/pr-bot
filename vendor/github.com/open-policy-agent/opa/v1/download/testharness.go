@@ -227,25 +227,27 @@ func (t *testFixture) setClient(client rest.Client) {
 	t.client = client
 }
 
-func (t *testFixture) oneShot(ctx context.Context, u Update) {
+func (t *testFixture) oneShot(_ context.Context, u Update) error {
 
 	t.updates = append(t.updates, u)
 
 	if u.Error != nil {
 		etag := t.etags["test/bundle1"]
 		t.d.SetCache(etag)
-		return
+		return u.Error
 	}
 
 	if u.Bundle != nil {
 		if t.mockBundleActivationError {
 			etag := t.etags["test/bundle1"]
 			t.d.SetCache(etag)
-			return
+			return errors.New("activation error")
 		}
 	}
 
 	t.etags["test/bundle1"] = u.ETag
+
+	return nil
 }
 
 type fileInfo struct {
@@ -275,8 +277,8 @@ func newTestServer(t *testing.T) *testServer {
 				Manifest: bundle.Manifest{
 					Revision: "quickbrownfaux",
 				},
-				Data: map[string]interface{}{
-					"foo": map[string]interface{}{
+				Data: map[string]any{
+					"foo": map[string]any{
 						"bar": json.Number("1"),
 						"baz": "qux",
 					},
@@ -304,7 +306,7 @@ func newTestServer(t *testing.T) *testServer {
 				Manifest: bundle.Manifest{
 					Revision: "quickbrownfaux",
 				},
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Modules: []bundle.ModuleFile{
 					{
 						Path: `/example.rego`,
@@ -321,7 +323,7 @@ p contains 1 if {
 				Manifest: bundle.Manifest{
 					Revision: "quickbrownfaux",
 				},
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Modules: []bundle.ModuleFile{
 					{
 						Path: `/example.rego`,
@@ -339,7 +341,7 @@ p contains 1 if {
 				Manifest: bundle.Manifest{
 					Revision: "quickbrownfaux",
 				},
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Modules: []bundle.ModuleFile{
 					{
 						Path: `/example.rego`,

@@ -1,0 +1,21 @@
+sudo: false
+language: go
+go:
+  - 1.10.x
+  - 1.11.x
+  - 1.12.x
+  - master
+
+before_install:
+  - go get golang.org/x/tools/cmd/cover
+  - go get github.com/mattn/goveralls
+
+before_script:
+  - sudo service memcached restart
+
+script:
+  - go test ./... -v -covermode=count -coverprofile=coverage.out
+  - go vet ./...
+
+after_script:
+  - $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci

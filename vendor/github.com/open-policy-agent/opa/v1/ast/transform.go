@@ -13,13 +13,12 @@ import (
 // be set to nil and no transformations will be applied to children of the
 // element.
 type Transformer interface {
-	Transform(interface{}) (interface{}, error)
+	Transform(any) (any, error)
 }
 
 // Transform iterates the AST and calls the Transform function on the
 // Transformer t for x before recursing.
-func Transform(t Transformer, x interface{}) (interface{}, error) {
-
+func Transform(t Transformer, x any) (any, error) {
 	if term, ok := x.(*Term); ok {
 		return Transform(t, term.Value)
 	}
@@ -284,36 +283,49 @@ func Transform(t Transformer, x interface{}) (interface{}, error) {
 			}
 		}
 		return y, nil
+	case *TemplateString:
+		for i := range y.Parts {
+			if expr, ok := y.Parts[i].(*Expr); ok {
+				transformed, err := Transform(t, expr)
+				if err != nil {
+					return nil, err
+				}
+				if y.Parts[i], ok = transformed.(*Expr); !ok {
+					return nil, fmt.Errorf("illegal transform: %T != %T", expr, transformed)
+				}
+			}
+		}
+		return y, nil
 	default:
 		return y, nil
 	}
 }
 
 // TransformRefs calls the function f on all references under x.
-func TransformRefs(x interface{}, f func(Ref) (Value, error)) (interface{}, error) {
-	t := &GenericTransformer{func(x interface{}) (interface{}, error) {
+func TransformRefs(x any, f func(Ref) (Value, error)) (any, error) {
+	t := NewGenericTransformer(func(x any) (any, error) {
 		if r, ok := x.(Ref); ok {
 			return f(r)
 		}
 		return x, nil
-	}}
+	})
 	return Transform(t, x)
 }
 
 // TransformVars calls the function f on all vars under x.
-func TransformVars(x interface{}, f func(Var) (Value, error)) (interface{}, error) {
-	t := &GenericTransformer{func(x interface{}) (interface{}, error) {
+func TransformVars(x any, f func(Var) (Value, error)) (any, error) {
+	t := NewGenericTransformer(func(x any) (any, error) {
 		if v, ok := x.(Var); ok {
 			return f(v)
 		}
 		return x, nil
-	}}
+	})
 	return Transform(t, x)
 }
 
-// TransformComprehensions calls the functio nf on all comprehensions under x.
-func TransformComprehensions(x interface{}, f func(interface{}) (Value, error)) (interface{}, error) {
-	t := &GenericTransformer{func(x interface{}) (interface{}, error) {
+// TransformComprehensions calls the function f on all comprehensions under x.
+func TransformComprehensions(x any, f func(any) (Value, error)) (any, error) {
+	t := NewGenericTransformer(func(x any) (any, error) {
 		switch x := x.(type) {
 		case *ArrayComprehension:
 			return f(x)
@@ -323,26 +335,26 @@ func TransformComprehensions(x interface{}, f func(interface{}) (Value, error)) 
 			return f(x)
 		}
 		return x, nil
-	}}
+	})
 	return Transform(t, x)
 }
 
 // GenericTransformer implements the Transformer interface to provide a utility
 // to transform AST nodes using a closure.
 type GenericTransformer struct {
-	f func(interface{}) (interface{}, error)
+	f func(any) (any, error)
 }
 
 // NewGenericTransformer returns a new GenericTransformer that will transform
 // AST nodes using the function f.
-func NewGenericTransformer(f func(x interface{}) (interface{}, error)) *GenericTransformer {
+func NewGenericTransformer(f func(x any) (any, error)) *GenericTransformer {
 	return &GenericTransformer{
 		f: f,
 	}
 }
 
 // Transform calls the function f on the GenericTransformer.
-func (t *GenericTransformer) Transform(x interface{}) (interface{}, error) {
+func (t *GenericTransformer) Transform(x any) (any, error) {
 	return t.f(x)
 }
 
@@ -387,11 +399,7 @@ func transformTerm(t Transformer, term *Term) (*Term, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &Term{
-		Value:    v,
-		Location: term.Location,
-	}
-	return r, nil
+	return &Term{Value: v, Location: term.Location}, nil
 }
 
 func transformValue(t Transformer, v Value) (Value, error) {
@@ -407,13 +415,18 @@ func transformValue(t Transformer, v Value) (Value, error) {
 }
 
 func transformVar(t Transformer, v Var) (Var, error) {
-	v1, err := Transform(t, v)
+	tv, err := t.Transform(v)
 	if err != nil {
 		return "", err
 	}
-	r, ok := v1.(Var)
+
+	if tv == nil {
+		return "", nil
+	}
+
+	r, ok := tv.(Var)
 	if !ok {
-		return "", fmt.Errorf("illegal transform: %T != %T", v, v1)
+		return "", fmt.Errorf("illegal transform: %T != %T", v, tv)
 	}
 	return r, nil
 }

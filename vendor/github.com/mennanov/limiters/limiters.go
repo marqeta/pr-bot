@@ -35,15 +35,14 @@ func (l *StdLogger) Log(v ...interface{}) {
 }
 
 // Clock encapsulates a system Clock.
-// Used
+// Used.
 type Clock interface {
 	// Now returns the current system time.
 	Now() time.Time
 }
 
 // SystemClock implements the Clock interface by using the real system clock.
-type SystemClock struct {
-}
+type SystemClock struct{}
 
 // NewSystemClock creates a new instance of SystemClock.
 func NewSystemClock() *SystemClock {

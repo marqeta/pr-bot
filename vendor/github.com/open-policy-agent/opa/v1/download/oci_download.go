@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containerd/containerd/remotes"
-	"github.com/containerd/containerd/remotes/docker"
+	"github.com/containerd/containerd/v2/core/remotes"
+	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/errdefs"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -53,14 +53,14 @@ func NewOCI(config Config, client rest.Client, path, storePath string) *OCIDownl
 }
 
 // WithCallback registers a function f to be called when download updates occur.
-func (d *OCIDownloader) WithCallback(f func(context.Context, Update)) *OCIDownloader {
+func (d *OCIDownloader) WithCallback(f func(context.Context, Update) error) *OCIDownloader {
 	d.f = f
 	return d
 }
 
 // WithLogAttrs sets an optional set of key/value pair attributes to include in
 // log messages emitted by the downloader.
-func (d *OCIDownloader) WithLogAttrs(attrs map[string]interface{}) *OCIDownloader {
+func (d *OCIDownloader) WithLogAttrs(attrs map[string]any) *OCIDownloader {
 	d.logger = d.logger.WithFields(attrs)
 	return d
 }
@@ -177,11 +177,11 @@ func (d *OCIDownloader) loop(ctx context.Context) {
 		}
 
 		if err != nil {
-			delay = util.DefaultBackoff(float64(minRetryDelay), float64(*d.config.Polling.MaxDelaySeconds), retry)
+			delay = util.DefaultBackoff(float64(minRetryDelay), float64(*d.config.Polling.parsedMaxDelaySeconds), retry)
 		} else {
 			// revert the response header timeout value on the http client's transport
-			min := float64(*d.config.Polling.MinDelaySeconds)
-			max := float64(*d.config.Polling.MaxDelaySeconds)
+			min := float64(*d.config.Polling.parsedMinDelaySeconds)
+			max := float64(*d.config.Polling.parsedMaxDelaySeconds)
 			delay = time.Duration(((max - min) * rand.Float64()) + min)
 		}
 
@@ -207,14 +207,16 @@ func (d *OCIDownloader) oneShot(ctx context.Context) error {
 	resp, err := d.download(ctx, m)
 	if err != nil {
 		if d.f != nil {
-			d.f(ctx, Update{ETag: "", Bundle: nil, Error: err, Metrics: m, Raw: nil})
+			err = errors.Join(err, d.f(ctx, Update{ETag: "", Bundle: nil, Error: err, Metrics: m, Raw: nil}))
 		}
 		return err
 	}
 	d.SetCache(resp.etag) // set the current etag sha to the cache
 
 	if d.f != nil {
-		d.f(ctx, Update{ETag: resp.etag, Bundle: resp.b, Error: nil, Metrics: m, Raw: resp.raw, Size: resp.size})
+		if err := d.f(ctx, Update{ETag: resp.etag, Bundle: resp.b, Error: nil, Metrics: m, Raw: resp.raw, Size: resp.size}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -19,11 +19,12 @@ package dynamolock
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"math/big"
+	"runtime"
 	"sync"
 	"time"
 
@@ -113,7 +114,7 @@ func New(dynamoDB DynamoDBClient, tableName string, opts ...ClientOption) (*Clie
 		partitionKeyName: defaultPartitionKeyName,
 		leaseDuration:    defaultLeaseDuration,
 		heartbeatPeriod:  defaultHeartbeatPeriod,
-		ownerName:        randString(32),
+		ownerName:        randString(),
 		logger: &contextLoggerAdapter{
 			logger: log.New(io.Discard, "", 0),
 		},
@@ -276,6 +277,12 @@ func WithAdditionalAttributes(attr map[string]types.AttributeValue) AcquireLockO
 // Consider an example which uses this mechanism for leader election. One
 // way to make use of this SessionMonitor is to register a callback that
 // kills the instance in case the leader's lock enters the danger zone.
+//
+// The SessionMonitor will not trigger if by the time of its evaluation, the
+// lock is already expired. Therefore, you have to tune the lease, the
+// heartbeat, and the safe time to reduce the likelihood that the lock will be
+// lost at the same time in which the session monitor would be evaluated. A good
+// rule of thumb is to have safeTime to be leaseDuration-(3*heartbeatPeriod).
 func WithSessionMonitor(safeTime time.Duration, callback func()) AcquireLockOption {
 	return func(opt *acquireLockOptions) {
 		opt.sessionMonitor = &sessionMonitor{
@@ -659,37 +666,64 @@ func (c *Client) createLockItem(opt getLockOptions, item map[string]types.Attrib
 }
 
 func (c *Client) generateRecordVersionNumber() string {
-	// TODO: improve me
-	return randString(32)
+	return fmt.Sprint(time.Now().UnixNano(), ":", randString())
 }
 
-var letterRunes = []rune("1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+var base32Encoder = base32.StdEncoding.WithPadding(base32.NoPadding)
 
-func randString(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		// ignoring error as the only possible error is for io.ReadFull
-		r, _ := rand.Int(rand.Reader, big.NewInt(int64(len(letterRunes))))
-		b[i] = letterRunes[r.Int64()]
+func randString() string {
+	randomBytes := make([]byte, 32)
+	for {
+		if _, err := io.ReadFull(rand.Reader, randomBytes); err == nil {
+			break
+		}
 	}
-	return string(b)
+	return base32Encoder.EncodeToString(randomBytes)
 }
-
-func (c *Client) heartbeat(ctx context.Context) {
-	c.logger.Println(ctx, "starting heartbeats")
+func (c *Client) heartbeat(rootCtx context.Context) {
+	c.logger.Println(rootCtx, "heartbeats starting")
+	defer c.logger.Println(rootCtx, "heartbeats done")
 	tick := time.NewTicker(c.heartbeatPeriod)
 	defer tick.Stop()
-	for range tick.C {
+	for {
+		select {
+		case <-rootCtx.Done():
+			c.logger.Println(rootCtx, "client closed, stopping heartbeat")
+			return
+		case t := <-tick.C:
+			c.logger.Println(rootCtx, "heartbeat at:", t)
+		}
+		var (
+			wg        sync.WaitGroup
+			maxProcs  = runtime.GOMAXPROCS(0)
+			lockItems = make(chan *Lock, maxProcs)
+		)
+		c.logger.Println(rootCtx, "heartbeat concurrency level:", maxProcs)
+		for i := 0; i < maxProcs; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for lockItem := range lockItems {
+					c.heartbeatLock(rootCtx, lockItem)
+				}
+			}()
+		}
 		c.locks.Range(func(_ string, lockItem *Lock) bool {
-			if err := c.SendHeartbeat(lockItem); err != nil {
-				c.logger.Println(ctx, "error sending heartbeat to", lockItem.partitionKey, ":", err)
-			}
+			lockItems <- lockItem
 			return true
 		})
-		if ctx.Err() != nil {
-			c.logger.Println(ctx, "client closed, stopping heartbeat")
-			return
-		}
+		close(lockItems)
+		c.logger.Println(rootCtx, "all heartbeats are dispatched")
+		wg.Wait()
+		c.logger.Println(rootCtx, "all heartbeats are processed")
+	}
+}
+
+func (c *Client) heartbeatLock(rootCtx context.Context, lockItem *Lock) {
+	ctx, cancel := context.WithTimeout(rootCtx, c.heartbeatPeriod)
+	defer cancel()
+	if err := c.SendHeartbeatWithContext(ctx, lockItem); err != nil {
+		c.logger.Println(ctx, "error sending heartbeat to", lockItem.partitionKey, ":", err)
 	}
 }
 
@@ -832,11 +866,22 @@ func WithDataAfterRelease(data []byte) ReleaseLockOption {
 type ReleaseLockOption func(*releaseLockOptions)
 
 func ownershipLockCondition(partitionKeyName, recordVersionNumber, ownerName string) expression.ConditionBuilder {
-	cond := expression.And(
-		expression.And(
+	return unsafeOwnershipLockCondition(partitionKeyName, recordVersionNumber, ownerName, false)
+}
+
+func unsafeOwnershipLockCondition(partitionKeyName, recordVersionNumber, ownerName string, unsafeMatchOwnerOnly bool) expression.ConditionBuilder {
+	var partitionExpr expression.ConditionBuilder
+	switch unsafeMatchOwnerOnly {
+	case true:
+		partitionExpr = expression.AttributeExists(expression.Name(partitionKeyName))
+	case false:
+		partitionExpr = expression.And(
 			expression.AttributeExists(expression.Name(partitionKeyName)),
 			expression.Equal(rvnAttr, expression.Value(recordVersionNumber)),
-		),
+		)
+	}
+	cond := expression.And(
+		partitionExpr,
 		expression.Equal(ownerNameAttr, expression.Value(ownerName)),
 	)
 	return cond
@@ -941,15 +986,15 @@ func (c *Client) getItemKeys(lockItem *Lock) map[string]types.AttributeValue {
 	return key
 }
 
-// GetWithContext finds out who owns the given lock, but does not acquire the
-// lock. It returns the metadata currently associated with the given lock. If
-// the client currently has the lock, it will return the lock, and operations
-// such as releaseLock will work. However, if the client does not have the lock,
-// then operations like releaseLock will not work (after calling GetWithContext,
-// the caller should check lockItem.isExpired() to figure out if it currently
-// has the lock.) If the context is canceled, it is going to return the context
-// error on local cache hit. The given context is passed down to the underlying
-// dynamoDB call.
+// GetWithContext loads the given lock, but does not acquire the lock. It
+// returns the metadata currently associated with the given lock. If the client
+// pointer is the one who acquired the lock, it will return the lock, and
+// operations such as releaseLock will work. However, if the client is not the
+// one who acquired the lock, then operations like releaseLock will not work
+// (after calling GetWithContext, the caller should check lockItem.isExpired()
+// to figure out if it currently has the lock.) If the context is canceled, it
+// is going to return the context error on local cache hit. The given context is
+// passed down to the underlying dynamoDB call.
 func (c *Client) GetWithContext(ctx context.Context, key string) (*Lock, error) {
 	if c.isClosed() {
 		return nil, ErrClientClosed
@@ -965,7 +1010,6 @@ func (c *Client) GetWithContext(ctx context.Context, key string) (*Lock, error) 
 	keyName := getLockOption.partitionKeyName
 	lockItem, ok := c.locks.Load(keyName)
 	if ok {
-		lockItem.updateRVN("", time.Time{}, lockItem.leaseDuration)
 		return lockItem, nil
 	}
 
@@ -1021,27 +1065,27 @@ func (c *Client) removeKillSessionMonitor(monitorName string) {
 	cancel()
 }
 
-func (c *Client) lockSessionMonitorChecker(ctx context.Context,
-	monitorName string, lock *Lock) {
+func (c *Client) lockSessionMonitorChecker(ctx context.Context, monitorName string, lock *Lock) {
 	go func() {
 		defer c.sessionMonitorCancellations.Delete(monitorName)
 		for {
+			lock.semaphore.Lock()
+			isExpired := lock.isExpired()
+			timeUntilDangerZone := lock.timeUntilDangerZoneEntered()
+			lock.semaphore.Unlock()
+			if isExpired {
+				c.logger.Println(ctx, "lock expired", timeUntilDangerZone)
+				return
+			}
+			c.logger.Println(ctx, "lockSessionMonitorChecker", "monitorName:", monitorName, "timeUntilDangerZone:", timeUntilDangerZone, time.Now().Add(timeUntilDangerZone))
+			if timeUntilDangerZone <= 0 {
+				go lock.sessionMonitor.callback()
+				return
+			}
 			select {
 			case <-ctx.Done():
 				return
-			default:
-				lock.semaphore.Lock()
-				timeUntilDangerZone, err := lock.timeUntilDangerZoneEntered()
-				lock.semaphore.Unlock()
-				if err != nil {
-					c.logger.Println(ctx, "cannot run session monitor because", err)
-					return
-				}
-				if timeUntilDangerZone <= 0 {
-					go lock.sessionMonitor.callback()
-					return
-				}
-				time.Sleep(timeUntilDangerZone)
+			case <-time.After(timeUntilDangerZone):
 			}
 		}
 	}()
@@ -1082,13 +1126,14 @@ type DynamoDBClient interface {
 
 // Sugar functions
 
-// Get finds out who owns the given lock, but does not acquire the lock. It
+// GetWithContext loads the given lock, but does not acquire the lock. It
 // returns the metadata currently associated with the given lock. If the client
-// currently has the lock, it will return the lock, and operations such as
-// releaseLock will work. However, if the client does not have the lock, then
-// operations like releaseLock will not work (after calling Get, the caller
-// should check lockItem.isExpired() to figure out if it currently has the
-// lock.)
+// pointer is the one who acquired the lock, it will return the lock, and
+// operations such as releaseLock will work. However, if the client is not the
+// one who acquired the lock, then operations like releaseLock will not work
+// (after calling GetWithContext, the caller should check lockItem.isExpired()
+// to figure out if it currently has the lock.) If the context is canceled, it
+// is going to return the context error on local cache hit.
 func (c *Client) Get(key string) (*Lock, error) {
 	return c.GetWithContext(context.Background(), key)
 }

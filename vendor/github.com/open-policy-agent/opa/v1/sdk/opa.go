@@ -7,9 +7,11 @@ package sdk
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -61,7 +63,38 @@ type state struct {
 
 // New returns a new OPA object. This function should minimally be called with
 // options that specify an OPA configuration file.
-func New(ctx context.Context, opts Options) (*OPA, error) {
+func New(ctx context.Context, nopts Options) (*OPA, error) {
+	defaultOptsMtx.Lock()
+	opts := Options{
+		Plugins: make(map[string]plugins.Factory, len(nopts.Plugins)+len(defaultOptions.Plugins)),
+	}
+	opts.ID = cmp.Or(nopts.ID, defaultOptions.ID)
+	opts.Config = cmp.Or(nopts.Config, defaultOptions.Config)
+	opts.ConsoleLogger = cmp.Or(nopts.ConsoleLogger, defaultOptions.ConsoleLogger)
+
+	opts.V1Compatible = nopts.V1Compatible
+	opts.V0Compatible = nopts.V0Compatible
+	opts.RegoVersion = cmp.Or(nopts.RegoVersion, defaultOptions.RegoVersion)
+
+	opts.ManagerOpts = append(opts.ManagerOpts, defaultOptions.ManagerOpts...)
+	opts.ManagerOpts = append(opts.ManagerOpts, nopts.ManagerOpts...)
+
+	opts.Logger = cmp.Or(nopts.Logger, defaultOptions.Logger)
+	hs := make([]hooks.Hook, 0, opts.Hooks.Len()+nopts.Hooks.Len())
+	opts.Hooks.Each(func(h hooks.Hook) {
+		hs = append(hs, h)
+	})
+	nopts.Hooks.Each(func(h hooks.Hook) {
+		hs = append(hs, h)
+	})
+	opts.Hooks = hooks.New(hs...)
+
+	maps.Copy(opts.Plugins, defaultOptions.Plugins)
+	maps.Copy(opts.Plugins, nopts.Plugins)
+
+	opts.Store = cmp.Or(nopts.Store, defaultOptions.Store)
+	opts.Ready = cmp.Or(nopts.Ready, defaultOptions.Ready)
+	defaultOptsMtx.Unlock()
 
 	var err error
 
@@ -110,7 +143,6 @@ func (opa *OPA) Plugin(name string) plugins.Plugin {
 // function is atomic. If the configuration update cannot be successfully
 // applied, the old configuration will remain intact.
 func (opa *OPA) Configure(ctx context.Context, opts ConfigOptions) error {
-
 	if err := opts.init(); err != nil {
 		return err
 	}
@@ -144,12 +176,21 @@ func (opa *OPA) configure(ctx context.Context, bs []byte, ready chan struct{}, b
 		plugins.PrintHook(loggingPrintHook{logger: opa.logger}),
 		plugins.WithHooks(opa.hooks),
 	}
-
 	opts = append(opts, opa.managerOpts...)
+
+	// Plumb in storage for external bundle activation plugin, if registered with bundle.RegisterStore,
+	// unless the user has passed their own store already.
+	var store storage.Store
+	switch {
+	case opa.store != nil:
+		store = opa.store
+	case bundle.BundleExtStore != nil:
+		store = bundle.BundleExtStore()
+	}
 	manager, err := plugins.New(
 		bs,
 		opa.id,
-		opa.store,
+		store,
 		opts...,
 	)
 	if err != nil {
@@ -163,7 +204,6 @@ func (opa *OPA) configure(ctx context.Context, bs []byte, ready chan struct{}, b
 	})
 
 	manager.RegisterPluginStatusListener("sdk", func(status map[string]*plugins.Status) {
-
 		select {
 		case <-ready:
 			return
@@ -185,7 +225,7 @@ func (opa *OPA) configure(ctx context.Context, bs []byte, ready chan struct{}, b
 		close(ready)
 	})
 
-	var bootConfig map[string]interface{}
+	var bootConfig map[string]any
 	err = util.Unmarshal(opa.config, &bootConfig)
 	if err != nil {
 		return err
@@ -241,7 +281,6 @@ func (opa *OPA) configure(ctx context.Context, bs []byte, ready chan struct{}, b
 
 // Stop closes the OPA. The OPA cannot be restarted.
 func (opa *OPA) Stop(ctx context.Context) {
-
 	opa.mtx.Lock()
 	mgr := opa.state.manager
 	opa.mtx.Unlock()
@@ -253,7 +292,6 @@ func (opa *OPA) Stop(ctx context.Context) {
 
 // Decision returns a named decision. This function is threadsafe.
 func (opa *OPA) Decision(ctx context.Context, options DecisionOptions) (*DecisionResult, error) {
-
 	record := server.Info{
 		Timestamp:      options.Now,
 		Path:           options.Path,
@@ -310,8 +348,8 @@ func (opa *OPA) Decision(ctx context.Context, options DecisionOptions) (*Decisio
 type DecisionOptions struct {
 	Now                 time.Time           // specifies wallclock time used for time.now_ns(), decision log timestamp, etc.
 	Path                string              // specifies name of policy decision to evaluate (e.g., example/allow)
-	Input               interface{}         // specifies value of the input document to evaluate policy with
-	NDBCache            interface{}         // specifies the non-deterministic builtins cache to use for evaluation.
+	Input               any                 // specifies value of the input document to evaluate policy with
+	NDBCache            any                 // specifies the non-deterministic builtins cache to use for evaluation.
 	StrictBuiltinErrors bool                // treat built-in function errors as fatal
 	Tracer              topdown.QueryTracer // specifies the tracer to use for evaluation, optional
 	Metrics             metrics.Metrics     // specifies the metrics to use for preparing and evaluation, optional
@@ -323,7 +361,7 @@ type DecisionOptions struct {
 // DecisionResult contains the output of query evaluation.
 type DecisionResult struct {
 	ID         string             // provides the identifier for this decision (which is included in the decision log.)
-	Result     interface{}        // provides the output of query evaluation.
+	Result     any                // provides the output of query evaluation.
 	Provenance types.ProvenanceV1 // wraps the bundle build/version information
 }
 
@@ -352,7 +390,7 @@ func (opa *OPA) executeTransaction(ctx context.Context, record *server.Info, wor
 	}
 
 	if record.Path == "" {
-		record.Path = *s.manager.Config.DefaultDecision
+		record.Path = *s.manager.GetConfig().DefaultDecision
 	}
 
 	record.Txn, record.Error = s.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
@@ -365,8 +403,8 @@ func (opa *OPA) executeTransaction(ctx context.Context, record *server.Info, wor
 	record.Metrics.Timer(metrics.SDKDecisionEval).Stop()
 
 	if logger := logs.Lookup(s.manager); logger != nil {
-		// Decision log masking requires the event object to be a map[string]interface{},
-		// or a []interface{}, and all internal objects referenced in the mask to be
+		// Decision log masking requires the event object to be a map[string]any,
+		// or a []any, and all internal objects referenced in the mask to be
 		// similarly generic. Convert the input AST back into a JSON-representation to
 		// ensure decision logging will work if the input Go type does not fit these requirements.
 		if record.InputAST != nil {
@@ -387,7 +425,6 @@ func (opa *OPA) executeTransaction(ctx context.Context, record *server.Info, wor
 // Note(philipc): The NDBCache is unused here, because non-deterministic
 // builtins are not run during partial evaluation.
 func (opa *OPA) Partial(ctx context.Context, options PartialOptions) (*PartialResult, error) {
-
 	if options.Mapper == nil {
 		options.Mapper = &RawMapper{}
 	}
@@ -425,9 +462,9 @@ func (opa *OPA) Partial(ctx context.Context, options PartialOptions) (*PartialRe
 			})
 			if record.Error == nil {
 				result.Result, record.Error = options.Mapper.MapResults(pq)
-				var pqAst interface{}
+				var pqAst any
 				if record.Error == nil {
-					var mappedResults interface{}
+					var mappedResults any
 					mappedResults, record.Error = options.Mapper.ResultToJSON(result.Result)
 					record.MappedResults = &mappedResults
 					pqAst = pq
@@ -450,15 +487,15 @@ func (opa *OPA) Partial(ctx context.Context, options PartialOptions) (*PartialRe
 
 type PartialQueryMapper interface {
 	// The first interface being returned is the type that will be used for further processing
-	MapResults(pq *rego.PartialQueries) (interface{}, error)
+	MapResults(pq *rego.PartialQueries) (any, error)
 	// This should be able to take the Result object from MapResults and return a type that can be logged as JSON
-	ResultToJSON(result interface{}) (interface{}, error)
+	ResultToJSON(result any) (any, error)
 }
 
 // PartialOptions contains parameters for partial query evaluation.
 type PartialOptions struct {
 	Now                 time.Time           // specifies wallclock time used for time.now_ns(), decision log timestamp, etc.
-	Input               interface{}         // specifies value of the input document to evaluate policy with
+	Input               any                 // specifies value of the input document to evaluate policy with
 	Query               string              // specifies the query to be partially evaluated
 	Unknowns            []string            // specifies the unknown elements of the policy
 	Mapper              PartialQueryMapper  // specifies the mapper to use when processing results
@@ -472,7 +509,7 @@ type PartialOptions struct {
 
 type PartialResult struct {
 	ID         string               // decision ID
-	Result     interface{}          // mapped result
+	Result     any                  // mapped result
 	AST        *rego.PartialQueries // raw result
 	Provenance types.ProvenanceV1   // wraps the bundle build/version information
 }
@@ -516,7 +553,7 @@ type evalArgs struct {
 	interQueryBuiltinValueCache cache.InterQueryValueCache
 	now                         time.Time
 	path                        string
-	input                       interface{}
+	input                       any
 	ndbcache                    builtins.NDBCache
 	m                           metrics.Metrics
 	strictBuiltinErrors         bool
@@ -525,8 +562,7 @@ type evalArgs struct {
 	instrument                  bool
 }
 
-func evaluate(ctx context.Context, args evalArgs) (interface{}, types.ProvenanceV1, ast.Value, map[string]server.BundleInfo, error) {
-
+func evaluate(ctx context.Context, args evalArgs) (any, types.ProvenanceV1, ast.Value, map[string]server.BundleInfo, error) {
 	provenance := types.ProvenanceV1{
 		Version:   version.Version,
 		Vcs:       version.Vcs,
@@ -606,7 +642,7 @@ type partialEvalArgs struct {
 	unknowns            []string
 	query               string
 	now                 time.Time
-	input               interface{}
+	input               any
 	m                   metrics.Metrics
 	strictBuiltinErrors bool
 	tracer              topdown.QueryTracer
@@ -615,7 +651,6 @@ type partialEvalArgs struct {
 }
 
 func partial(ctx context.Context, args partialEvalArgs) (*rego.PartialQueries, types.ProvenanceV1, ast.Value, map[string]server.BundleInfo, error) {
-
 	provenance := types.ProvenanceV1{
 		Version: version.Version,
 		Bundles: make(map[string]types.ProvenanceBundleV1),
@@ -714,6 +749,6 @@ type loggingPrintHook struct {
 }
 
 func (h loggingPrintHook) Print(pctx print.Context, msg string) error {
-	h.logger.WithFields(map[string]interface{}{"line": pctx.Location.String()}).Info(msg)
+	h.logger.WithFields(map[string]any{"line": pctx.Location.String()}).Info(msg)
 	return nil
 }

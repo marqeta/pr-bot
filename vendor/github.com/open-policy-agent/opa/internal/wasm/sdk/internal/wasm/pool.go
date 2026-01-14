@@ -9,7 +9,7 @@ import (
 	"context"
 	"sync"
 
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v3"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v39"
 
 	"github.com/open-policy-agent/opa/internal/wasm/sdk/opa/errors"
 	"github.com/open-policy-agent/opa/internal/wasm/util"
@@ -217,7 +217,7 @@ func (p *Pool) SetPolicyData(ctx context.Context, policy []byte, data []byte) er
 // SetDataPath will update the current data on the VMs by setting the value at the
 // specified path. If an error occurs the instance is still in a valid state, however
 // the data will not have been modified.
-func (p *Pool) SetDataPath(ctx context.Context, path []string, value interface{}) error {
+func (p *Pool) SetDataPath(ctx context.Context, path []string, value any) error {
 	p.dataMtx.Lock()
 	defer p.dataMtx.Unlock()
 	return p.updateVMs(func(vm *VM, _ vmOpts) error {

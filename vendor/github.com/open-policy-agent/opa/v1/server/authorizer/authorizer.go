@@ -24,15 +24,16 @@ import (
 
 // Basic provides policy-based authorization over incoming requests.
 type Basic struct {
-	inner                 http.Handler
-	compiler              func() *ast.Compiler
-	store                 storage.Store
-	runtime               *ast.Term
-	decision              func() ast.Ref
-	printHook             print.Hook
-	enablePrintStatements bool
-	interQueryCache       cache.InterQueryCache
-	interQueryValueCache  cache.InterQueryValueCache
+	inner                  http.Handler
+	compiler               func() *ast.Compiler
+	store                  storage.Store
+	runtime                *ast.Term
+	decision               func() ast.Ref
+	printHook              print.Hook
+	enablePrintStatements  bool
+	interQueryCache        cache.InterQueryCache
+	interQueryValueCache   cache.InterQueryValueCache
+	urlPathExpectsBodyFunc []func(string, []any) bool
 }
 
 // Runtime returns an argument that sets the runtime on the authorizer.
@@ -81,6 +82,13 @@ func InterQueryValueCache(interQueryValueCache cache.InterQueryValueCache) func(
 	}
 }
 
+// URLPathValidatorFuncs allows for extensions to the allowed paths an authorizer will accept.
+func URLPathExpectsBodyFunc(urlPathExpectsBodyFunc []func(string, []any) bool) func(*Basic) {
+	return func(b *Basic) {
+		b.urlPathExpectsBodyFunc = urlPathExpectsBodyFunc
+	}
+}
+
 // NewBasic returns a new Basic object.
 func NewBasic(inner http.Handler, compiler func() *ast.Compiler, store storage.Store, opts ...func(*Basic)) http.Handler {
 	b := &Basic{
@@ -96,30 +104,28 @@ func NewBasic(inner http.Handler, compiler func() *ast.Compiler, store storage.S
 	return b
 }
 
-func (h *Basic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
+func (b *Basic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// TODO(tsandall): Pass AST value as input instead of Go value to avoid unnecessary
 	// conversions.
-	r, input, err := makeInput(r)
+	r, input, err := makeInput(r, b.urlPathExpectsBodyFunc)
 	if err != nil {
 		writer.ErrorString(w, http.StatusBadRequest, types.CodeInvalidParameter, err)
 		return
 	}
 
 	rego := rego.New(
-		rego.Query(h.decision().String()),
-		rego.Compiler(h.compiler()),
-		rego.Store(h.store),
+		rego.Query(b.decision().String()),
+		rego.Compiler(b.compiler()),
+		rego.Store(b.store),
 		rego.Input(input),
-		rego.Runtime(h.runtime),
-		rego.EnablePrintStatements(h.enablePrintStatements),
-		rego.PrintHook(h.printHook),
-		rego.InterQueryBuiltinCache(h.interQueryCache),
-		rego.InterQueryBuiltinValueCache(h.interQueryValueCache),
+		rego.Runtime(b.runtime),
+		rego.EnablePrintStatements(b.enablePrintStatements),
+		rego.PrintHook(b.printHook),
+		rego.InterQueryBuiltinCache(b.interQueryCache),
+		rego.InterQueryBuiltinValueCache(b.interQueryValueCache),
 	)
 
 	rs, err := rego.Eval(r.Context())
-
 	if err != nil {
 		writer.ErrorAuto(w, err)
 		return
@@ -134,19 +140,19 @@ func (h *Basic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch allowed := rs[0].Expressions[0].Value.(type) {
 	case bool:
 		if allowed {
-			h.inner.ServeHTTP(w, r)
+			b.inner.ServeHTTP(w, r)
 			return
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if decision, ok := allowed["allowed"]; ok {
 			if allow, ok := decision.(bool); ok && allow {
-				h.inner.ServeHTTP(w, r)
+				b.inner.ServeHTTP(w, r)
 				return
 			}
 			if reason, ok := allowed["reason"]; ok {
 				message, ok := reason.(string)
 				if ok {
-					writer.Error(w, http.StatusUnauthorized, types.NewErrorV1(types.CodeUnauthorized, message)) //nolint:govet
+					writer.Error(w, http.StatusUnauthorized, types.NewErrorV1(types.CodeUnauthorized, "%s", message))
 					return
 				}
 			}
@@ -158,18 +164,24 @@ func (h *Basic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writer.Error(w, http.StatusUnauthorized, types.NewErrorV1(types.CodeUnauthorized, types.MsgUnauthorizedError))
 }
 
-func makeInput(r *http.Request) (*http.Request, interface{}, error) {
+var emptyQuery = url.Values{}
+
+func makeInput(r *http.Request, extraPaths []func(string, []any) bool) (*http.Request, any, error) {
 	path, err := parsePath(r.URL.Path)
 	if err != nil {
 		return r, nil, err
 	}
 
 	method := strings.ToUpper(r.Method)
-	query := r.URL.Query()
+
+	query := emptyQuery
+	if r.URL.RawQuery != "" {
+		query = r.URL.Query()
+	}
 
 	var rawBody []byte
 
-	if expectBody(r.Method, path) {
+	if expectBody(r.Method, path) || checkExtraExpectedReqBodyPaths(extraPaths, r.Method, path) {
 		var err error
 		rawBody, err = util.ReadMaybeCompressedBody(r)
 		if err != nil {
@@ -177,7 +189,7 @@ func makeInput(r *http.Request) (*http.Request, interface{}, error) {
 		}
 	}
 
-	input := map[string]interface{}{
+	input := map[string]any{
 		"path":    path,
 		"method":  method,
 		"params":  query,
@@ -185,7 +197,7 @@ func makeInput(r *http.Request) (*http.Request, interface{}, error) {
 	}
 
 	if len(rawBody) > 0 {
-		var body interface{}
+		var body any
 		if expectYAML(r) {
 			if err := util.Unmarshal(rawBody, &body); err != nil {
 				return r, nil, err
@@ -219,7 +231,7 @@ var dataAPIVersions = map[string]bool{
 	"v1": true,
 }
 
-func expectBody(method string, path []interface{}) bool {
+func expectBody(method string, path []any) bool {
 	if method == http.MethodPost {
 		if len(path) == 1 {
 			s := path[0].(string)
@@ -233,6 +245,15 @@ func expectBody(method string, path []interface{}) bool {
 	return false
 }
 
+func checkExtraExpectedReqBodyPaths(validators []func(string, []any) bool, method string, path []any) bool {
+	for _, f := range validators {
+		if f(method, path) {
+			return true
+		}
+	}
+	return false
+}
+
 func expectYAML(r *http.Request) bool {
 	// NOTE(tsandall): This check comes from the server's HTTP handler code. The docs
 	// are a bit more strict, but the authorizer should be consistent w/ the original
@@ -240,9 +261,9 @@ func expectYAML(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Content-Type"), "yaml")
 }
 
-func parsePath(path string) ([]interface{}, error) {
+func parsePath(path string) ([]any, error) {
 	if len(path) == 0 {
-		return []interface{}{}, nil
+		return []any{}, nil
 	}
 	parts := strings.Split(path[1:], "/")
 	for i := range parts {
@@ -252,7 +273,7 @@ func parsePath(path string) ([]interface{}, error) {
 			return nil, err
 		}
 	}
-	sl := make([]interface{}, len(parts))
+	sl := make([]any, len(parts))
 	for i := range sl {
 		sl[i] = parts[i]
 	}
@@ -260,7 +281,7 @@ func parsePath(path string) ([]interface{}, error) {
 }
 
 type authorizerCachedBody struct {
-	parsed interface{}
+	parsed any
 }
 
 type authorizerCachedBodyKey string
@@ -269,7 +290,7 @@ const ctxkey authorizerCachedBodyKey = "authorizerCachedBodyKey"
 
 // SetBodyOnContext adds the parsed input value to the context. This function is only
 // exposed for test purposes.
-func SetBodyOnContext(ctx context.Context, x interface{}) context.Context {
+func SetBodyOnContext(ctx context.Context, x any) context.Context {
 	return context.WithValue(ctx, ctxkey, authorizerCachedBody{
 		parsed: x,
 	})
@@ -277,7 +298,7 @@ func SetBodyOnContext(ctx context.Context, x interface{}) context.Context {
 
 // GetBodyOnContext returns the parsed input from the request context if it exists.
 // The authorizer saves the parsed input on the context when it runs.
-func GetBodyOnContext(ctx context.Context) (interface{}, bool) {
+func GetBodyOnContext(ctx context.Context) (any, bool) {
 	input, ok := ctx.Value(ctxkey).(authorizerCachedBody)
 	if !ok {
 		return nil, false

@@ -23,17 +23,16 @@ func checkDuplicateImports(modules []*Module) (errors Errors) {
 	return
 }
 
-func checkRootDocumentOverrides(node interface{}) Errors {
+func checkRootDocumentOverrides(node any) Errors {
 	errors := Errors{}
 
 	WalkRules(node, func(rule *Rule) bool {
-		var name string
+		name := rule.Head.Name
 		if len(rule.Head.Reference) > 0 {
-			name = rule.Head.Reference[0].Value.(Var).String()
-		} else {
-			name = rule.Head.Name.String()
+			name = rule.Head.Reference[0].Value.(Var)
 		}
-		if RootDocumentRefs.Contains(RefTerm(VarTerm(name))) {
+
+		if ReservedVars.Contains(name) {
 			errors = append(errors, NewError(CompileErr, rule.Location, "rules must not shadow %v (use a different rule name)", name))
 		}
 
@@ -52,8 +51,8 @@ func checkRootDocumentOverrides(node interface{}) Errors {
 		if expr.IsAssignment() {
 			// assign() can be called directly, so we need to assert its given first operand exists before checking its name.
 			if nameOp := expr.Operand(0); nameOp != nil {
-				name := nameOp.String()
-				if RootDocumentRefs.Contains(RefTerm(VarTerm(name))) {
+				name := Var(nameOp.String())
+				if ReservedVars.Contains(name) {
 					errors = append(errors, NewError(CompileErr, expr.Location, "variables must not shadow %v (use a different variable name)", name))
 				}
 			}
@@ -64,28 +63,26 @@ func checkRootDocumentOverrides(node interface{}) Errors {
 	return errors
 }
 
-func walkCalls(node interface{}, f func(interface{}) bool) {
-	vis := &GenericVisitor{func(x interface{}) bool {
-		switch x := x.(type) {
+func walkCalls(node any, f func(any) bool) {
+	vis := NewGenericVisitor(func(x any) bool {
+		switch y := x.(type) {
 		case Call:
 			return f(x)
 		case *Expr:
-			if x.IsCall() {
+			if y.IsCall() {
 				return f(x)
 			}
 		case *Head:
 			// GenericVisitor doesn't walk the rule head ref
-			walkCalls(x.Reference, f)
+			walkCalls(y.Reference, f)
 		}
 		return false
-	}}
+	})
 	vis.Walk(node)
 }
 
-func checkDeprecatedBuiltins(deprecatedBuiltinsMap map[string]struct{}, node interface{}) Errors {
-	errs := make(Errors, 0)
-
-	walkCalls(node, func(x interface{}) bool {
+func checkDeprecatedBuiltins(deprecatedBuiltinsMap map[string]struct{}, node any) (errs Errors) {
+	walkCalls(node, func(x any) bool {
 		var operator string
 		var loc *Location
 
@@ -113,7 +110,7 @@ func checkDeprecatedBuiltins(deprecatedBuiltinsMap map[string]struct{}, node int
 	return errs
 }
 
-func checkDeprecatedBuiltinsForCurrentVersion(node interface{}) Errors {
+func checkDeprecatedBuiltinsForCurrentVersion(node any) Errors {
 	deprecatedBuiltins := make(map[string]struct{})
 	capabilities := CapabilitiesForThisVersion()
 	for _, bi := range capabilities.Builtins {
@@ -150,11 +147,11 @@ func NewRegoCheckOptions() RegoCheckOptions {
 
 // CheckRegoV1 checks the given module or rule for errors that are specific to Rego v1.
 // Passing something other than an *ast.Rule or *ast.Module is considered a programming error, and will cause a panic.
-func CheckRegoV1(x interface{}) Errors {
+func CheckRegoV1(x any) Errors {
 	return CheckRegoV1WithOptions(x, NewRegoCheckOptions())
 }
 
-func CheckRegoV1WithOptions(x interface{}, opts RegoCheckOptions) Errors {
+func CheckRegoV1WithOptions(x any, opts RegoCheckOptions) Errors {
 	switch x := x.(type) {
 	case *Module:
 		return checkRegoV1Module(x, opts)
@@ -191,7 +188,7 @@ func checkRegoV1Rule(rule *Rule, opts RegoCheckOptions) Errors {
 
 	var errs Errors
 
-	if opts.NoKeywordsAsRuleNames && IsKeywordInRegoVersion(rule.Head.Name.String(), RegoV1) {
+	if opts.NoKeywordsAsRuleNames && len(rule.Head.Reference) < 2 && IsKeywordInRegoVersion(rule.Head.Name.String(), RegoV1) {
 		errs = append(errs, NewError(ParseErr, rule.Location, "%s keyword cannot be used for rule name", rule.Head.Name.String()))
 	}
 	if opts.RequireRuleBodyOrValue && rule.generatedBody && rule.Head.generatedValue {

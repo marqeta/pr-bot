@@ -18,6 +18,18 @@ import (
 	"github.com/open-policy-agent/opa/internal/future"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/types"
+	"github.com/open-policy-agent/opa/v1/util"
+)
+
+// defaultLocationFile is the file name used in `Ast()` for terms
+// without a location, as could happen when pretty-printing the
+// results of partial eval.
+const defaultLocationFile = "__format_default__"
+
+var (
+	expandedConst     = ast.NewBody(ast.NewExpr(ast.InternedTerm(true)))
+	commentsSlicePool = util.NewSlicePool[*ast.Comment](50)
+	varRegexp         = regexp.MustCompile("^[[:alpha:]_][[:alpha:][:digit:]_]*$")
 )
 
 // Opts lets you control the code formatting via `AstWithOpts()`.
@@ -37,6 +49,13 @@ type Opts struct {
 	// DropV0Imports instructs the formatter to drop all v0 imports from the module; i.e. 'rego.v1' and 'future.keywords' imports.
 	// Imports are only removed if [Opts.RegoVersion] makes them redundant.
 	DropV0Imports bool
+
+	// SkipDefensiveCopying, if true, will avoid deep-copying the AST before formatting it.
+	// This is true by default for all Source* functions, but false by default for Ast* functions,
+	// as some formatting operations may otherwise mutate the AST.
+	SkipDefensiveCopying bool
+
+	Capabilities *ast.Capabilities
 }
 
 func (o Opts) effectiveRegoVersion() ast.RegoVersion {
@@ -46,16 +65,11 @@ func (o Opts) effectiveRegoVersion() ast.RegoVersion {
 	return o.RegoVersion
 }
 
-// defaultLocationFile is the file name used in `Ast()` for terms
-// without a location, as could happen when pretty-printing the
-// results of partial eval.
-const defaultLocationFile = "__format_default__"
-
 // Source formats a Rego source file. The bytes provided must describe a complete
 // Rego module. If they don't, Source will return an error resulting from the attempt
 // to parse the bytes.
 func Source(filename string, src []byte) ([]byte, error) {
-	return SourceWithOpts(filename, src, Opts{})
+	return SourceWithOpts(filename, src, Opts{SkipDefensiveCopying: true})
 }
 
 func SourceWithOpts(filename string, src []byte, opts Opts) ([]byte, error) {
@@ -69,6 +83,9 @@ func SourceWithOpts(filename string, src []byte, opts Opts) ([]byte, error) {
 		// Otherwise, we'll default to the default rego-version.
 		parserOpts.RegoVersion = ast.RegoV1
 	}
+
+	// Copying the node does not make sense when both input and output are bytes.
+	opts.SkipDefensiveCopying = true
 
 	if parserOpts.RegoVersion == ast.RegoUndefined {
 		parserOpts.RegoVersion = ast.DefaultRegoVersion
@@ -101,7 +118,7 @@ func SourceWithOpts(filename string, src []byte, opts Opts) ([]byte, error) {
 
 // MustAst is a helper function to format a Rego AST element. If any errors
 // occur this function will panic. This is mostly used for test
-func MustAst(x interface{}) []byte {
+func MustAst(x any) []byte {
 	bs, err := Ast(x)
 	if err != nil {
 		panic(err)
@@ -111,7 +128,7 @@ func MustAst(x interface{}) []byte {
 
 // MustAstWithOpts is a helper function to format a Rego AST element. If any errors
 // occur this function will panic. This is mostly used for test
-func MustAstWithOpts(x interface{}, opts Opts) []byte {
+func MustAstWithOpts(x any, opts Opts) []byte {
 	bs, err := AstWithOpts(x, opts)
 	if err != nil {
 		panic(err)
@@ -122,7 +139,7 @@ func MustAstWithOpts(x interface{}, opts Opts) []byte {
 // Ast formats a Rego AST element. If the passed value is not a valid AST
 // element, Ast returns nil and an error. If AST nodes are missing locations
 // an arbitrary location will be used.
-func Ast(x interface{}) ([]byte, error) {
+func Ast(x any) ([]byte, error) {
 	return AstWithOpts(x, Opts{})
 }
 
@@ -146,6 +163,10 @@ type fmtOpts struct {
 	regoV1         bool
 	regoV1Imported bool
 	futureKeywords []string
+
+	// If true, the formatter will retain keywords in refs, e.g. `p.not ` instead of `p["not"]`.
+	// The format of the original ref is preserved, so `p["not"]` will still be formatted as `p["not"]`.
+	allowKeywordsInRefs bool
 }
 
 func (o fmtOpts) keywords() []string {
@@ -156,11 +177,13 @@ func (o fmtOpts) keywords() []string {
 	return append(kws, o.futureKeywords...)
 }
 
-func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
+func AstWithOpts(x any, opts Opts) ([]byte, error) {
 	// The node has to be deep copied because it may be mutated below. Alternatively,
 	// we could avoid the copy by checking if mutation will occur first. For now,
 	// since format is not latency sensitive, just deep copy in all cases.
-	x = ast.Copy(x)
+	if !opts.SkipDefensiveCopying {
+		x = ast.Copy(x)
+	}
 
 	wildcards := map[ast.Var]*ast.Term{}
 
@@ -178,6 +201,12 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 		o.ifs = true
 		o.contains = true
 	}
+
+	capabilities := opts.Capabilities
+	if capabilities == nil {
+		capabilities = ast.CapabilitiesForThisVersion(ast.CapabilitiesRegoVersion(opts.effectiveRegoVersion()))
+	}
+	o.allowKeywordsInRefs = capabilities.ContainsFeature(ast.FeatureKeywordsInRefs)
 
 	memberRef := ast.Member.Ref()
 	memberWithKeyRef := ast.MemberWithKey.Ref()
@@ -221,10 +250,11 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 			}
 
 		case *ast.Rule:
-			if len(n.Head.Ref()) > 2 {
+			headLen := len(n.Head.Ref())
+			if headLen > 2 {
 				o.refHeads = true
 			}
-			if len(n.Head.Ref()) == 2 && n.Head.Key != nil && n.Head.Value == nil { // p.q contains "x"
+			if headLen == 2 && n.Head.Key != nil && n.Head.Value == nil { // p.q contains "x"
 				o.refHeads = true
 			}
 		}
@@ -249,7 +279,7 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 			x.Imports = ensureRegoV1Import(x.Imports)
 		}
 
-		regoV1Imported := moduleIsRegoV1Compatible(x)
+		regoV1Imported := slices.ContainsFunc(x.Imports, isRegoV1Compatible)
 		if regoVersion == ast.RegoV0CompatV1 || regoVersion == ast.RegoV1 || regoV1Imported {
 			if !opts.DropV0Imports && !regoV1Imported {
 				for _, kw := range o.futureKeywords {
@@ -265,22 +295,22 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 		}
 		err := w.writeModule(x)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case *ast.Package:
 		_, err := w.writePackage(x, nil)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case *ast.Import:
 		_, err := w.writeImports([]*ast.Import{x}, nil)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case *ast.Rule:
 		_, err := w.writeRule(x, false /* isElse */, nil)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case *ast.Head:
 		_, err := w.writeHead(x,
@@ -288,7 +318,7 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 			false, // isExpandedConst
 			nil)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case ast.Body:
 		_, err := w.writeBody(x, nil)
@@ -298,27 +328,27 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 	case *ast.Expr:
 		_, err := w.writeExpr(x, nil)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case *ast.With:
 		_, err := w.writeWith(x, nil, false)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case *ast.Term:
 		_, err := w.writeTerm(x, nil)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case ast.Value:
 		_, err := w.writeTerm(&ast.Term{Value: x, Location: &ast.Location{}}, nil)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	case *ast.Comment:
 		err := w.writeComments([]*ast.Comment{x})
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 	default:
 		return nil, fmt.Errorf("not an ast element: %v", x)
@@ -327,6 +357,7 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 	if len(w.errs) > 0 {
 		return nil, w.errs
 	}
+
 	return squashTrailingNewlines(w.buf.Bytes()), nil
 }
 
@@ -384,9 +415,9 @@ type writer struct {
 
 func (w *writer) writeModule(module *ast.Module) error {
 	var pkg *ast.Package
-	var others []interface{}
+	var others []any
 	var comments []*ast.Comment
-	visitor := ast.NewGenericVisitor(func(x interface{}) bool {
+	visitor := ast.NewGenericVisitor(func(x any) bool {
 		switch x := x.(type) {
 		case *ast.Comment:
 			comments = append(comments, x)
@@ -406,7 +437,7 @@ func (w *writer) writeModule(module *ast.Module) error {
 	sort.Slice(comments, func(i, j int) bool {
 		l, err := locLess(comments[i], comments[j])
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 		return l
 	})
@@ -414,7 +445,7 @@ func (w *writer) writeModule(module *ast.Module) error {
 	sort.Slice(others, func(i, j int) bool {
 		l, err := locLess(others[i], others[j])
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 		return l
 	})
@@ -512,12 +543,12 @@ func (w *writer) writeRules(rules []*ast.Rule, comments []*ast.Comment) ([]*ast.
 		var err error
 		comments, err = w.insertComments(comments, rule.Location)
 		if err != nil && !errors.As(err, &unexpectedCommentError{}) {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 
 		comments, err = w.writeRule(rule, false, comments)
 		if err != nil && !errors.As(err, &unexpectedCommentError{}) {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 
 		if i < len(rules)-1 && w.groupableOneLiner(rule) {
@@ -532,8 +563,6 @@ func (w *writer) writeRules(rules []*ast.Rule, comments []*ast.Comment) ([]*ast.
 	}
 	return comments, nil
 }
-
-var expandedConst = ast.NewBody(ast.NewExpr(ast.InternedBooleanTerm(true)))
 
 func (w *writer) groupableOneLiner(rule *ast.Rule) bool {
 	// Location required to determine if two rules are adjacent in the policy.
@@ -655,8 +684,6 @@ func (w *writer) writeRule(rule *ast.Rule, isElse bool, comments []*ast.Comment)
 	return comments, nil
 }
 
-var elseVar ast.Value = ast.Var("else")
-
 func (w *writer) writeElse(rule *ast.Rule, comments []*ast.Comment) ([]*ast.Comment, error) {
 	// If there was nothing else on the line before the "else" starts
 	// then preserve this style of else block, otherwise it will be
@@ -703,7 +730,7 @@ func (w *writer) writeElse(rule *ast.Rule, comments []*ast.Comment) ([]*ast.Comm
 
 	rule.Else.Head.Name = "else" // NOTE(sr): whaaat
 
-	elseHeadReference := ast.NewTerm(elseVar)            // construct a reference for the term
+	elseHeadReference := ast.VarTerm("else")             // construct a reference for the term
 	elseHeadReference.Location = rule.Else.Head.Location // and set the location to match the rule location
 
 	rule.Else.Head.Reference = ast.Ref{elseHeadReference}
@@ -759,7 +786,7 @@ func (w *writer) writeHead(head *ast.Head, isDefault bool, isExpandedConst bool,
 
 	if len(head.Args) > 0 {
 		w.write("(")
-		var args []interface{}
+		var args []any
 		for _, arg := range head.Args {
 			args = append(args, arg)
 		}
@@ -790,7 +817,7 @@ func (w *writer) writeHead(head *ast.Head, isDefault bool, isExpandedConst bool,
 	}
 
 	if head.Value != nil &&
-		(head.Key != nil || !ast.InternedBooleanTerm(true).Equal(head.Value) || isExpandedConst || isDefault) {
+		(head.Key != nil || !ast.InternedTerm(true).Equal(head.Value) || isExpandedConst || isDefault) {
 
 		// in rego v1, explicitly print value for ref-head constants that aren't partial set assignments, e.g.:
 		// * a -> parser error, won't reach here
@@ -801,7 +828,7 @@ func (w *writer) writeHead(head *ast.Head, isDefault bool, isExpandedConst bool,
 
 		if head.Location == head.Value.Location &&
 			head.Name != "else" &&
-			ast.InternedBooleanTerm(true).Equal(head.Value) &&
+			ast.InternedTerm(true).Equal(head.Value) &&
 			!isRegoV1RefConst {
 			// If the value location is the same as the location of the head,
 			// we know that the value is generated, i.e. f(1)
@@ -862,7 +889,7 @@ func (w *writer) writeBody(body ast.Body, comments []*ast.Comment) ([]*ast.Comme
 
 		comments, err = w.writeExpr(expr, comments)
 		if err != nil && !errors.As(err, &unexpectedCommentError{}) {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 		w.endLine()
 	}
@@ -1070,9 +1097,17 @@ func (w *writer) writeFunctionCall(expr *ast.Expr, comments []*ast.Comment) ([]*
 }
 
 func (w *writer) writeFunctionCallPlain(terms []*ast.Term, comments []*ast.Comment) ([]*ast.Comment, error) {
-	w.write(terms[0].String() + "(")
+	if r, ok := terms[0].Value.(ast.Ref); ok {
+		if c, err := w.writeRef(r, comments); err != nil {
+			return c, err
+		}
+	} else {
+		w.write(terms[0].String())
+	}
+	w.write("(")
 	defer w.write(")")
-	args := make([]interface{}, len(terms)-1)
+
+	args := make([]any, len(terms)-1)
 	for i, t := range terms[1:] {
 		args[i] = t
 	}
@@ -1107,18 +1142,33 @@ func (w *writer) writeWith(with *ast.With, comments []*ast.Comment, indented boo
 	return comments, nil
 }
 
+// saveComments saves a copy of the comments slice in a pooled slice to and returns it.
+// This is to avoid having to create a new slice every time we need to save comments.
+// The caller is responsible for putting the slice back in the pool when done.
+func saveComments(comments []*ast.Comment) *[]*ast.Comment {
+	cmlen := len(comments)
+	saved := commentsSlicePool.Get(cmlen)
+
+	copy(*saved, comments)
+
+	return saved
+}
+
 func (w *writer) writeTerm(term *ast.Term, comments []*ast.Comment) ([]*ast.Comment, error) {
-	currentComments := make([]*ast.Comment, len(comments))
-	copy(currentComments, comments)
+	if len(comments) == 0 {
+		return w.writeTermParens(false, term, comments)
+	}
 
 	currentLen := w.buf.Len()
+	currentComments := saveComments(comments)
+	defer commentsSlicePool.Put(currentComments)
 
 	comments, err := w.writeTermParens(false, term, comments)
 	if err != nil {
 		if errors.As(err, &unexpectedCommentError{}) {
 			w.buf.Truncate(currentLen)
 
-			comments, uErr := w.writeUnformatted(term.Location, currentComments)
+			comments, uErr := w.writeUnformatted(term.Location, *currentComments)
 			if uErr != nil {
 				return nil, uErr
 			}
@@ -1136,16 +1186,16 @@ func (w *writer) writeUnformatted(location *ast.Location, currentComments []*ast
 		return nil, errors.New("original unformatted text is empty")
 	}
 
-	rawRule := string(location.Text)
-	rowNum := len(strings.Split(rawRule, "\n"))
+	rowNum := bytes.Count(location.Text, []byte{'\n'}) + 1
 
-	w.write(string(location.Text))
+	w.writeBytes(location.Text)
 
 	comments := make([]*ast.Comment, 0, len(currentComments))
 	for _, c := range currentComments {
 		// if there is a body then wait to write the last comment
 		if w.writeCommentOnFinalLine && c.Location.Row == location.Row+rowNum-1 {
-			w.write(" " + string(c.Location.Text))
+			w.write(" ")
+			w.writeBytes(c.Location.Text)
 			continue
 		}
 
@@ -1207,19 +1257,19 @@ func (w *writer) writeTermParens(parens bool, term *ast.Term, comments []*ast.Co
 	case ast.String:
 		if term.Location.Text[0] == '`' {
 			// To preserve raw strings, we need to output the original text,
-			w.write(string(term.Location.Text))
+			w.writeBytes(term.Location.Text)
 		} else {
 			// x.String() cannot be used by default because it can change the input string "\u0000" to "\x00"
-			var after, quote string
+			var after, quote []byte
 			var found bool
 			// term.Location.Text could contain the prefix `else :=`, remove it
 			switch term.Location.Text[len(term.Location.Text)-1] {
 			case '"':
-				quote = "\""
-				_, after, found = strings.Cut(string(term.Location.Text), quote)
+				quote = []byte{'"'}
+				_, after, found = bytes.Cut(term.Location.Text, quote)
 			case '`':
-				quote = "`"
-				_, after, found = strings.Cut(string(term.Location.Text), quote)
+				quote = []byte{'`'}
+				_, after, found = bytes.Cut(term.Location.Text, quote)
 			}
 
 			if !found {
@@ -1227,9 +1277,15 @@ func (w *writer) writeTermParens(parens bool, term *ast.Term, comments []*ast.Co
 				// e.g. partial_set.y to partial_set["y"]
 				w.write(x.String())
 			} else {
-				w.write(quote + after)
+				w.writeBytes(quote)
+				w.writeBytes(after)
 			}
 
+		}
+	case *ast.TemplateString:
+		comments, err = w.writeTemplateString(x, comments)
+		if err != nil {
+			return nil, err
 		}
 	case ast.Var:
 		w.write(w.formatVar(x))
@@ -1245,6 +1301,91 @@ func (w *writer) writeTermParens(parens bool, term *ast.Term, comments []*ast.Co
 	if !w.inline {
 		w.startLine()
 	}
+	return comments, nil
+}
+
+func (w *writer) writeTemplateString(ts *ast.TemplateString, comments []*ast.Comment) ([]*ast.Comment, error) {
+	w.write("$")
+	if ts.MultiLine {
+		w.write("`")
+	} else {
+		w.write(`"`)
+	}
+
+	for i, p := range ts.Parts {
+		switch x := p.(type) {
+		case *ast.Expr:
+			w.write("{")
+			w.up()
+
+			if w.beforeEnd != nil {
+				// We have a comment on the same line as the opening template-expression brace '{'
+				w.endLine()
+				w.startLine()
+			} else {
+				// We might have comments to write; the first of which should be on the same line as the opening template-expression brace '{'
+				before, _, _ := partitionComments(comments, x.Location)
+				if len(before) > 0 {
+					w.write(" ")
+					w.inline = true
+					if err := w.writeComments(before); err != nil {
+						return nil, err
+					}
+
+					comments = comments[len(before):]
+				}
+			}
+
+			var err error
+			comments, err = w.writeExpr(x, comments)
+			if err != nil {
+				return comments, err
+			}
+
+			// write trailing comments
+			if i+1 < len(ts.Parts) {
+				before, _, _ := partitionComments(comments, ts.Parts[i+1].Loc())
+				if len(before) > 0 {
+					w.endLine()
+					if err := w.writeComments(before); err != nil {
+						return nil, err
+					}
+
+					comments = comments[len(before):]
+					w.startLine()
+				}
+			}
+
+			w.write("}")
+
+			if err := w.down(); err != nil {
+				return nil, err
+			}
+		case *ast.Term:
+			if s, ok := x.Value.(ast.String); ok {
+				if ts.MultiLine {
+					w.write(ast.EscapeTemplateStringStringPart(string(s)))
+				} else {
+					str := ast.EscapeTemplateStringStringPart(s.String())
+					w.write(str[1 : len(str)-1])
+				}
+			} else {
+				s := x.String()
+				s = strings.TrimPrefix(s, "\"")
+				s = strings.TrimSuffix(s, "\"")
+				w.write(s)
+			}
+		default:
+			w.write("<invalid>")
+		}
+	}
+
+	if ts.MultiLine {
+		w.write("`")
+	} else {
+		w.write(`"`)
+	}
+
 	return comments, nil
 }
 
@@ -1264,7 +1405,7 @@ func (w *writer) writeRef(x ast.Ref, comments []*ast.Comment) ([]*ast.Comment, e
 		for _, t := range path {
 			switch p := t.Value.(type) {
 			case ast.String:
-				w.writeRefStringPath(p)
+				w.writeRefStringPath(p, t.Location)
 			case ast.Var:
 				w.writeBracketed(w.formatVar(p))
 			default:
@@ -1290,15 +1431,31 @@ func (w *writer) writeBracketed(str string) {
 	w.write("[" + str + "]")
 }
 
-var varRegexp = regexp.MustCompile("^[[:alpha:]_][[:alpha:][:digit:]_]*$")
-
-func (w *writer) writeRefStringPath(s ast.String) {
+func (w *writer) writeRefStringPath(s ast.String, l *ast.Location) {
 	str := string(s)
-	if varRegexp.MatchString(str) && !ast.IsInKeywords(str, w.fmtOpts.keywords()) {
-		w.write("." + str)
-	} else {
+	if w.shouldBracketRefTerm(str, l) {
 		w.writeBracketed(s.String())
+	} else {
+		w.write("." + str)
 	}
+}
+
+func (w *writer) shouldBracketRefTerm(s string, l *ast.Location) bool {
+	if !varRegexp.MatchString(s) {
+		return true
+	}
+
+	if ast.IsInKeywords(s, w.fmtOpts.keywords()) {
+		if !w.fmtOpts.allowKeywordsInRefs {
+			return true
+		}
+
+		if l != nil && l.Text[0] == 34 { // If the original term text starts with '"', we preserve the brackets and quotes
+			return true
+		}
+	}
+
+	return false
 }
 
 func (*writer) formatVar(v ast.Var) string {
@@ -1405,7 +1562,7 @@ func (w *writer) writeObject(obj ast.Object, loc *ast.Location, comments []*ast.
 	w.write("{")
 	defer w.write("}")
 
-	var s []interface{}
+	var s []any
 	obj.Foreach(func(k, v *ast.Term) {
 		s = append(s, ast.Item(k, v))
 	})
@@ -1416,7 +1573,7 @@ func (w *writer) writeArray(arr *ast.Array, loc *ast.Location, comments []*ast.C
 	w.write("[")
 	defer w.write("]")
 
-	var s []interface{}
+	var s []any
 	arr.Foreach(func(t *ast.Term) {
 		s = append(s, t)
 	})
@@ -1443,7 +1600,7 @@ func (w *writer) writeSet(set ast.Set, loc *ast.Location, comments []*ast.Commen
 	w.write("{")
 	defer w.write("}")
 
-	var s []interface{}
+	var s []any
 	set.Foreach(func(t *ast.Term) {
 		s = append(s, t)
 	})
@@ -1510,7 +1667,7 @@ func (w *writer) writeComprehension(openChar, closeChar byte, term *ast.Term, bo
 }
 
 func (w *writer) writeComprehensionBody(openChar, closeChar byte, body ast.Body, term, compr *ast.Location, comments []*ast.Comment) ([]*ast.Comment, error) {
-	exprs := make([]interface{}, 0, len(body))
+	exprs := make([]any, 0, len(body))
 	for _, expr := range body {
 		exprs = append(exprs, expr)
 	}
@@ -1525,7 +1682,7 @@ func (w *writer) writeComprehensionBody(openChar, closeChar byte, body ast.Body,
 		defer w.startLine()
 		defer func() {
 			if err := w.down(); err != nil {
-				w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+				w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 			}
 		}()
 
@@ -1589,7 +1746,7 @@ func (w *writer) writeImports(imports []*ast.Import, comments []*ast.Comment) ([
 func (w *writer) writeImport(imp *ast.Import) error {
 	path := imp.Path.Value.(ast.Ref)
 
-	buf := []string{"import"}
+	w.write("import ")
 
 	if _, ok := future.WhichFutureKeyword(imp); ok {
 		// We don't want to wrap future.keywords imports in parens, so we create a new writer that doesn't
@@ -1600,22 +1757,24 @@ func (w *writer) writeImport(imp *ast.Import) error {
 		if err != nil {
 			return err
 		}
-		buf = append(buf, w2.buf.String())
+		w.write(w2.buf.String())
 	} else {
-		buf = append(buf, path.String())
+		_, err := w.writeRef(path, nil)
+		if err != nil {
+			return err
+		}
 	}
 
 	if len(imp.Alias) > 0 {
-		buf = append(buf, "as "+imp.Alias.String())
+		w.write(" as " + imp.Alias.String())
 	}
-	w.write(strings.Join(buf, " "))
 
 	return nil
 }
 
-type entryWriter func(interface{}, []*ast.Comment) ([]*ast.Comment, error)
+type entryWriter func(any, []*ast.Comment) ([]*ast.Comment, error)
 
-func (w *writer) writeIterable(elements []interface{}, last *ast.Location, close *ast.Location, comments []*ast.Comment, fn entryWriter) ([]*ast.Comment, error) {
+func (w *writer) writeIterable(elements []any, last *ast.Location, close *ast.Location, comments []*ast.Comment, fn entryWriter) ([]*ast.Comment, error) {
 	lines, err := w.groupIterable(elements, last)
 	if err != nil {
 		return nil, err
@@ -1658,7 +1817,7 @@ func (w *writer) writeIterable(elements []interface{}, last *ast.Location, close
 	return comments, nil
 }
 
-func (w *writer) writeIterableLine(elements []interface{}, comments []*ast.Comment, fn entryWriter) ([]*ast.Comment, error) {
+func (w *writer) writeIterableLine(elements []any, comments []*ast.Comment, fn entryWriter) ([]*ast.Comment, error) {
 	if len(elements) == 0 {
 		return comments, nil
 	}
@@ -1677,7 +1836,7 @@ func (w *writer) writeIterableLine(elements []interface{}, comments []*ast.Comme
 }
 
 func (w *writer) objectWriter() entryWriter {
-	return func(x interface{}, comments []*ast.Comment) ([]*ast.Comment, error) {
+	return func(x any, comments []*ast.Comment) ([]*ast.Comment, error) {
 		entry := x.([2]*ast.Term)
 
 		call, isCall := entry[0].Value.(ast.Call)
@@ -1710,7 +1869,7 @@ func (w *writer) objectWriter() entryWriter {
 }
 
 func (w *writer) listWriter() entryWriter {
-	return func(x interface{}, comments []*ast.Comment) ([]*ast.Comment, error) {
+	return func(x any, comments []*ast.Comment) ([]*ast.Comment, error) {
 		t, ok := x.(*ast.Term)
 		if ok {
 			call, isCall := t.Value.(ast.Call)
@@ -1726,7 +1885,7 @@ func (w *writer) listWriter() entryWriter {
 
 // groupIterable will group the `elements` slice into slices according to their
 // location: anything on the same line will be put into a slice.
-func (w *writer) groupIterable(elements []interface{}, last *ast.Location) ([][]interface{}, error) {
+func (w *writer) groupIterable(elements []any, last *ast.Location) ([][]any, error) {
 	// Generated vars occur in the AST when we're rendering the result of
 	// partial evaluation in a bundle build with optimization.
 	// Those variables, and wildcard variables have the "default location",
@@ -1753,20 +1912,20 @@ func (w *writer) groupIterable(elements []interface{}, last *ast.Location) ([][]
 			return false
 		})
 		if def { // return as-is
-			return [][]interface{}{elements}, nil
+			return [][]any{elements}, nil
 		}
 	}
 
 	slices.SortFunc(elements, func(i, j any) int {
 		l, err := locCmp(i, j)
 		if err != nil {
-			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, err.Error()))
+			w.errs = append(w.errs, ast.NewError(ast.FormatErr, &ast.Location{}, "%s", err.Error()))
 		}
 		return l
 	})
 
-	var lines [][]interface{}
-	cur := make([]interface{}, 0, len(elements))
+	var lines [][]any
+	cur := make([]any, 0, len(elements))
 	for i, t := range elements {
 		elem := t
 		loc, err := getLoc(elem)
@@ -1860,7 +2019,7 @@ func partitionComments(comments []*ast.Comment, l *ast.Location) ([]*ast.Comment
 	var at *ast.Comment
 
 	before := make([]*ast.Comment, 0, numBefore)
-	after := comments[0 : 0 : len(comments)-numBefore]
+	after := make([]*ast.Comment, 0, numAfter)
 
 	for _, c := range comments {
 		switch cmp := c.Location.Row - l.Row; {
@@ -1876,7 +2035,7 @@ func partitionComments(comments []*ast.Comment, l *ast.Location) ([]*ast.Comment
 	return before, at, after
 }
 
-func gatherImports(others []interface{}) (imports []*ast.Import, rest []interface{}) {
+func gatherImports(others []any) (imports []*ast.Import, rest []any) {
 	i := 0
 loop:
 	for ; i < len(others); i++ {
@@ -1890,7 +2049,7 @@ loop:
 	return imports, others[i:]
 }
 
-func gatherRules(others []interface{}) (rules []*ast.Rule, rest []interface{}) {
+func gatherRules(others []any) (rules []*ast.Rule, rest []any) {
 	i := 0
 loop:
 	for ; i < len(others); i++ {
@@ -1904,12 +2063,12 @@ loop:
 	return rules, others[i:]
 }
 
-func locLess(a, b interface{}) (bool, error) {
+func locLess(a, b any) (bool, error) {
 	c, err := locCmp(a, b)
 	return c < 0, err
 }
 
-func locCmp(a, b interface{}) (int, error) {
+func locCmp(a, b any) (int, error) {
 	al, err := getLoc(a)
 	if err != nil {
 		return 0, err
@@ -1934,7 +2093,7 @@ func locCmp(a, b interface{}) (int, error) {
 	return al.Col - bl.Col, nil
 }
 
-func getLoc(x interface{}) (*ast.Location, error) {
+func getLoc(x any) (*ast.Location, error) {
 	switch x := x.(type) {
 	case ast.Node: // *ast.Head, *ast.Expr, *ast.With, *ast.Term
 		return x.Loc(), nil
@@ -2090,9 +2249,14 @@ func (w *writer) blankLine() {
 	w.write("\n")
 }
 
-// write the input string and writes it to the buffer.
+// write writes string s to the buffer.
 func (w *writer) write(s string) {
 	w.buf.WriteString(s)
+}
+
+// writeBytes writes []byte b to the buffer.
+func (w *writer) writeBytes(b []byte) {
+	w.buf.Write(b)
 }
 
 // writeLine writes the string on a newly started line, then terminate the line.
@@ -2206,21 +2370,10 @@ func (d *ArityFormatErrDetail) Lines() []string {
 	}
 }
 
-func moduleIsRegoV1Compatible(m *ast.Module) bool {
-	for _, imp := range m.Imports {
-		if isRegoV1Compatible(imp) {
-			return true
-		}
-	}
-	return false
-}
-
-var v1StringTerm = ast.StringTerm("v1")
-
 // isRegoV1Compatible returns true if the passed *ast.Import is `rego.v1`
 func isRegoV1Compatible(imp *ast.Import) bool {
 	path := imp.Path.Value.(ast.Ref)
 	return len(path) == 2 &&
 		ast.RegoRootDocument.Equal(path[0]) &&
-		path[1].Equal(v1StringTerm)
+		path[1].Equal(ast.InternedTerm("v1"))
 }

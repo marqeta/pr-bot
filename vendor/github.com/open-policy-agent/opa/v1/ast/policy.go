@@ -86,7 +86,11 @@ var ReservedVars = NewVarSet(
 )
 
 // Wildcard represents the wildcard variable as defined in the language.
-var Wildcard = &Term{Value: Var("_")}
+var (
+	WildcardString       = "_"
+	WildcardValue  Value = Var(WildcardString)
+	Wildcard             = &Term{Value: WildcardValue}
+)
 
 // WildcardPrefix is the special character that all wildcard variables are
 // prefixed with when the statement they are contained in is parsed.
@@ -143,12 +147,7 @@ func IsKeyword(s string) bool {
 }
 
 func IsInKeywords(s string, keywords []string) bool {
-	for _, x := range keywords {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(keywords, s)
 }
 
 // IsKeywordInRegoVersion returns true if s is a language keyword.
@@ -265,12 +264,12 @@ type (
 
 	// Expr represents a single expression contained inside the body of a rule.
 	Expr struct {
-		With      []*With     `json:"with,omitempty"`
-		Terms     interface{} `json:"terms"`
-		Index     int         `json:"index"`
-		Generated bool        `json:"generated,omitempty"`
-		Negated   bool        `json:"negated,omitempty"`
-		Location  *Location   `json:"location,omitempty"`
+		With      []*With   `json:"with,omitempty"`
+		Terms     any       `json:"terms"`
+		Index     int       `json:"index"`
+		Generated bool      `json:"generated,omitempty"`
+		Negated   bool      `json:"negated,omitempty"`
+		Location  *Location `json:"location,omitempty"`
 
 		generatedFrom *Expr
 		generates     []*Expr
@@ -380,8 +379,10 @@ func (mod *Module) String() string {
 	appendAnnotationStrings := func(buf []string, node Node) []string {
 		if as, ok := byNode[node]; ok {
 			for i := range as {
-				buf = append(buf, "# METADATA")
-				buf = append(buf, "# "+as[i].String())
+				buf = append(buf,
+					"# METADATA",
+					"# "+as[i].String(),
+				)
 			}
 		}
 		return buf
@@ -537,7 +538,7 @@ func (pkg *Package) String() string {
 }
 
 func (pkg *Package) MarshalJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"path": pkg.Path,
 	}
 
@@ -620,7 +621,7 @@ func (imp *Import) SetLoc(loc *Location) {
 // document. This is the alias if defined otherwise the last element in the
 // path.
 func (imp *Import) Name() Var {
-	if len(imp.Alias) != 0 {
+	if imp.Alias != "" {
 		return imp.Alias
 	}
 	switch v := imp.Path.Value.(type) {
@@ -644,7 +645,7 @@ func (imp *Import) String() string {
 }
 
 func (imp *Import) MarshalJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"path": imp.Path,
 	}
 
@@ -731,6 +732,7 @@ func (rule *Rule) SetLoc(loc *Location) {
 
 // Path returns a ref referring to the document produced by this rule. If rule
 // is not contained in a module, this function panics.
+//
 // Deprecated: Poor handling of ref rules. Use `(*Rule).Ref()` instead.
 func (rule *Rule) Path() Ref {
 	if rule.Module == nil {
@@ -792,7 +794,7 @@ func (rule *Rule) isFunction() bool {
 }
 
 func (rule *Rule) MarshalJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"head": rule.Head,
 		"body": rule.Body,
 	}
@@ -986,6 +988,7 @@ func (head *Head) Copy() *Head {
 	cpy.Key = head.Key.Copy()
 	cpy.Value = head.Value.Copy()
 	cpy.keywords = nil
+	cpy.Assign = head.Assign
 	return &cpy
 }
 
@@ -1055,10 +1058,10 @@ func (head *Head) MarshalJSON() ([]byte, error) {
 
 // Vars returns a set of vars found in the head.
 func (head *Head) Vars() VarSet {
-	vis := &VarVisitor{vars: VarSet{}}
+	vis := NewVarVisitor()
 	// TODO: improve test coverage for this.
 	if head.Args != nil {
-		vis.Walk(head.Args)
+		vis.WalkArgs(head.Args)
 	}
 	if head.Key != nil {
 		vis.Walk(head.Key)
@@ -1067,7 +1070,7 @@ func (head *Head) Vars() VarSet {
 		vis.Walk(head.Value)
 	}
 	if len(head.Reference) > 0 {
-		vis.Walk(head.Reference[1:])
+		vis.WalkRef(head.Reference[1:])
 	}
 	return vis.vars
 }
@@ -1124,8 +1127,8 @@ func (a Args) SetLoc(loc *Location) {
 
 // Vars returns a set of vars that appear in a.
 func (a Args) Vars() VarSet {
-	vis := &VarVisitor{vars: VarSet{}}
-	vis.Walk(a)
+	vis := NewVarVisitor()
+	vis.WalkArgs(a)
 	return vis.vars
 }
 
@@ -1168,10 +1171,7 @@ func (body Body) Set(expr *Expr, pos int) {
 //
 // If body is a subset of other, it is considered less than (and vice versa).
 func (body Body) Compare(other Body) int {
-	minLen := len(body)
-	if len(other) < minLen {
-		minLen = len(other)
-	}
+	minLen := min(len(other), len(body))
 	for i := range minLen {
 		if cmp := body[i].Compare(other[i]); cmp != 0 {
 			return cmp
@@ -1251,12 +1251,12 @@ func (body Body) String() string {
 // control which vars are included.
 func (body Body) Vars(params VarVisitorParams) VarSet {
 	vis := NewVarVisitor().WithParams(params)
-	vis.Walk(body)
+	vis.WalkBody(body)
 	return vis.Vars()
 }
 
 // NewExpr returns a new Expr object.
-func NewExpr(terms interface{}) *Expr {
+func NewExpr(terms any) *Expr {
 	switch terms.(type) {
 	case *SomeDecl, *Every, *Term, []*Term: // ok
 	default:
@@ -1578,7 +1578,7 @@ func (expr *Expr) String() string {
 }
 
 func (expr *Expr) MarshalJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"terms": expr.Terms,
 		"index": expr.Index,
 	}
@@ -1606,7 +1606,7 @@ func (expr *Expr) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON parses the byte array and stores the result in expr.
 func (expr *Expr) UnmarshalJSON(bs []byte) error {
-	v := map[string]interface{}{}
+	v := map[string]any{}
 	if err := util.UnmarshalJSON(bs, &v); err != nil {
 		return err
 	}
@@ -1710,7 +1710,7 @@ func (d *SomeDecl) Hash() int {
 }
 
 func (d *SomeDecl) MarshalJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"symbols": d.Symbols,
 	}
 
@@ -1771,7 +1771,7 @@ func (q *Every) Compare(other *Every) int {
 // KeyValueVars returns the key and val arguments of an `every`
 // expression, if they are non-nil and not wildcards.
 func (q *Every) KeyValueVars() VarSet {
-	vis := &VarVisitor{vars: VarSet{}}
+	vis := NewVarVisitor()
 	if q.Key != nil {
 		vis.Walk(q.Key)
 	}
@@ -1780,7 +1780,7 @@ func (q *Every) KeyValueVars() VarSet {
 }
 
 func (q *Every) MarshalJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"key":    q.Key,
 		"value":  q.Value,
 		"domain": q.Domain,
@@ -1855,7 +1855,7 @@ func (w *With) SetLoc(loc *Location) {
 }
 
 func (w *With) MarshalJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"target": w.Target,
 		"value":  w.Value,
 	}
@@ -1870,7 +1870,7 @@ func (w *With) MarshalJSON() ([]byte, error) {
 }
 
 // Copy returns a deep copy of the AST node x. If x is not an AST node, x is returned unmodified.
-func Copy(x interface{}) interface{} {
+func Copy(x any) any {
 	switch x := x.(type) {
 	case *Module:
 		return x.Copy()

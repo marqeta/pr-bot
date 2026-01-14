@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -54,25 +55,30 @@ type Discovery struct {
 	manager              *plugins.Manager
 	config               *Config
 	factories            map[string]plugins.Factory
-	downloader           bundle.Loader                       // discovery bundle downloader
-	status               *bundle.Status                      // discovery status
-	listenersMtx         sync.Mutex                          // lock for listener map
-	listeners            map[interface{}]func(bundle.Status) // listeners for discovery update events
-	etag                 string                              // discovery bundle etag for caching purposes
+	downloader           bundle.Loader               // discovery bundle downloader
+	status               *bundle.Status              // discovery status
+	listenersMtx         sync.Mutex                  // lock for listener map
+	listeners            map[any]func(bundle.Status) // listeners for discovery update events
+	etag                 string                      // discovery bundle etag for caching purposes
 	metrics              metrics.Metrics
 	readyOnce            sync.Once
 	logger               logging.Logger
 	bundlePersistPath    string
 	hooks                hooks.Hooks
-	bootConfig           map[string]interface{}
+	bootConfig           map[string]any
 	overriddenConfigKeys []string
 }
 
 // Factories provides a set of factory functions to use for
-// instantiating custom plugins.
+// instantiating custom plugins. The passed map will be merged
+// with what's already on the `Discovery` instance, overwriting
+// existing keys on clashes.
 func Factories(fs map[string]plugins.Factory) func(*Discovery) {
 	return func(d *Discovery) {
-		d.factories = fs
+		if d.factories == nil {
+			d.factories = make(map[string]plugins.Factory, len(fs))
+		}
+		maps.Copy(d.factories, fs)
 	}
 }
 
@@ -89,7 +95,7 @@ func Hooks(hs hooks.Hooks) func(*Discovery) {
 	}
 }
 
-func BootConfig(bootConfig map[string]interface{}) func(*Discovery) {
+func BootConfig(bootConfig map[string]any) func(*Discovery) {
 	return func(d *Discovery) {
 		d.bootConfig = bootConfig
 	}
@@ -105,13 +111,16 @@ func New(manager *plugins.Manager, opts ...func(*Discovery)) (*Discovery, error)
 		f(result)
 	}
 
-	config, err := NewConfigBuilder().WithBytes(manager.Config.Discovery).WithServices(manager.Services()).
+	result.logger = manager.Logger().WithFields(map[string]any{"plugin": Name})
+
+	managerConfig := manager.GetConfig()
+	config, err := NewConfigBuilder().WithBytes([]byte(managerConfig.Discovery)).WithServices(manager.Services()).
 		WithKeyConfigs(manager.PublicKeys()).Parse()
 
 	if err != nil {
 		return nil, err
 	} else if config == nil {
-		if _, err := getPluginSet(result.factories, manager, manager.Config, result.metrics, nil); err != nil {
+		if _, err := getPluginSet(result.factories, manager, managerConfig, result.metrics, result.logger, nil); err != nil {
 			return nil, err
 		}
 		return result, nil
@@ -121,8 +130,8 @@ func New(manager *plugins.Manager, opts ...func(*Discovery)) (*Discovery, error)
 	restClient := manager.Client(config.service)
 	if strings.ToLower(restClient.Config().Type) == "oci" {
 		ociStorePath := filepath.Join(os.TempDir(), "opa", "oci") // use temporary folder /tmp/opa/oci
-		if manager.Config.PersistenceDirectory != nil {
-			ociStorePath = filepath.Join(*manager.Config.PersistenceDirectory, "oci")
+		if managerConfig.PersistenceDirectory != nil {
+			ociStorePath = filepath.Join(*managerConfig.PersistenceDirectory, "oci")
 		}
 		result.downloader = download.NewOCI(config.Config, restClient, config.path, ociStorePath).
 			WithCallback(result.oneShot).
@@ -141,7 +150,7 @@ func New(manager *plugins.Manager, opts ...func(*Discovery)) (*Discovery, error)
 		Name: Name,
 	}
 
-	result.logger = manager.Logger().WithFields(map[string]interface{}{"plugin": Name})
+	result.logger = manager.Logger().WithFields(map[string]any{"plugin": Name})
 
 	manager.UpdatePluginStatus(Name, &plugins.Status{State: plugins.StateNotReady})
 	return result, nil
@@ -149,14 +158,29 @@ func New(manager *plugins.Manager, opts ...func(*Discovery)) (*Discovery, error)
 
 // Start starts the dynamic discovery process if configured.
 func (c *Discovery) Start(ctx context.Context) error {
-
 	bundlePersistPath, err := c.getBundlePersistPath()
 	if err != nil {
 		return err
 	}
 	c.bundlePersistPath = bundlePersistPath
 
-	c.loadAndActivateBundleFromDisk(ctx)
+	if c.config != nil && c.config.Persist {
+		c.loadAndActivateBundleFromDisk(ctx)
+	} else {
+		// If bundle persistence isn't enabled, initialise plugins before starting the downloader
+		ps, err := getPluginSet(c.factories, c.manager, c.manager.GetConfig(), c.metrics, c.logger, nil)
+		if err != nil {
+			return err
+		}
+
+		for _, p := range ps.Start {
+			if err := p.Start(ctx); err != nil {
+				c.logger.Error("Failed to start configured plugins: %v", err)
+				c.status.SetError(err)
+				return err
+			}
+		}
+	}
 
 	if c.downloader != nil {
 		c.downloader.Start(ctx)
@@ -177,7 +201,7 @@ func (c *Discovery) Stop(ctx context.Context) {
 }
 
 // Reconfigure is a no-op on discovery.
-func (*Discovery) Reconfigure(context.Context, interface{}) {
+func (*Discovery) Reconfigure(context.Context, any) {
 }
 
 // Lookup returns the discovery plugin registered with the manager.
@@ -202,19 +226,19 @@ func (c *Discovery) Trigger(ctx context.Context) error {
 	return c.downloader.Trigger(ctx)
 }
 
-func (c *Discovery) RegisterListener(name interface{}, f func(bundle.Status)) {
+func (c *Discovery) RegisterListener(name any, f func(bundle.Status)) {
 	c.listenersMtx.Lock()
 	defer c.listenersMtx.Unlock()
 
 	if c.listeners == nil {
-		c.listeners = map[interface{}]func(bundle.Status){}
+		c.listeners = map[any]func(bundle.Status){}
 	}
 
 	c.listeners[name] = f
 }
 
 // Unregister a listener to stop receiving status updates.
-func (c *Discovery) Unregister(name interface{}) {
+func (c *Discovery) Unregister(name any) {
 	c.listenersMtx.Lock()
 	defer c.listenersMtx.Unlock()
 
@@ -222,7 +246,7 @@ func (c *Discovery) Unregister(name interface{}) {
 }
 
 func (c *Discovery) getBundlePersistPath() (string, error) {
-	persistDir, err := c.manager.Config.GetPersistenceDirectory()
+	persistDir, err := c.manager.GetConfig().GetPersistenceDirectory()
 	if err != nil {
 		return "", err
 	}
@@ -231,51 +255,48 @@ func (c *Discovery) getBundlePersistPath() (string, error) {
 }
 
 func (c *Discovery) loadAndActivateBundleFromDisk(ctx context.Context) {
+	b, err := c.loadBundleFromDisk()
+	if err != nil {
+		c.logger.Error("Failed to load discovery bundle from disk: %v", err)
+		c.status.SetError(err)
+		return
+	}
 
-	if c.config != nil && c.config.Persist {
-		b, err := c.loadBundleFromDisk()
+	if b == nil {
+		return
+	}
+
+	for range maxActivationRetry {
+
+		ps, err := c.processBundle(ctx, b)
 		if err != nil {
-			c.logger.Error("Failed to load discovery bundle from disk: %v", err)
+			c.logger.Error("Discovery bundle processing error occurred: %v", err)
 			c.status.SetError(err)
-			return
+			continue
 		}
 
-		if b == nil {
-			return
-		}
-
-		for range maxActivationRetry {
-
-			ps, err := c.processBundle(ctx, b)
-			if err != nil {
-				c.logger.Error("Discovery bundle processing error occurred: %v", err)
+		for _, p := range ps.Start {
+			if err := p.Start(ctx); err != nil {
+				c.logger.Error("Failed to start configured plugins: %v", err)
 				c.status.SetError(err)
-				continue
+				return
 			}
-
-			for _, p := range ps.Start {
-				if err := p.Start(ctx); err != nil {
-					c.logger.Error("Failed to start configured plugins: %v", err)
-					c.status.SetError(err)
-					return
-				}
-			}
-
-			for _, p := range ps.Reconfig {
-				p.Plugin.Reconfigure(ctx, p.Config)
-			}
-
-			c.status.SetError(nil)
-			c.status.SetActivateSuccess(b.Manifest.Revision)
-
-			// On the first activation success mark the plugin as being in OK state
-			c.readyOnce.Do(func() {
-				c.manager.UpdatePluginStatus(Name, &plugins.Status{State: plugins.StateOK})
-			})
-
-			c.logger.Debug("Discovery bundle loaded from disk and activated successfully.")
-			return
 		}
+
+		for _, p := range ps.Reconfig {
+			p.Plugin.Reconfigure(ctx, p.Config)
+		}
+
+		c.status.SetError(nil)
+		c.status.SetActivateSuccess(b.Manifest.Revision)
+
+		// On the first activation success mark the plugin as being in OK state
+		c.readyOnce.Do(func() {
+			c.manager.UpdatePluginStatus(Name, &plugins.Status{State: plugins.StateOK})
+		})
+
+		c.logger.Debug("Discovery bundle loaded from disk and activated successfully.")
+		return
 	}
 }
 
@@ -285,7 +306,6 @@ func (c *Discovery) loadBundleFromDisk() (*bundleApi.Bundle, error) {
 }
 
 func (c *Discovery) saveBundleToDisk(raw io.Reader) error {
-
 	bundleDir := filepath.Join(c.bundlePersistPath, c.discoveryBundleDirName())
 	bundleFile := filepath.Join(bundleDir, "bundle.tar.gz")
 
@@ -311,8 +331,7 @@ func saveCurrentBundleToDisk(path string, raw io.Reader) (string, error) {
 	return bundleUtils.SaveBundleToDisk(path, raw)
 }
 
-func (c *Discovery) oneShot(ctx context.Context, u download.Update) {
-
+func (c *Discovery) oneShot(ctx context.Context, u download.Update) error {
 	c.processUpdate(ctx, u)
 
 	if p := status.Lookup(c.manager); p != nil {
@@ -325,6 +344,8 @@ func (c *Discovery) oneShot(ctx context.Context, u download.Update) {
 	for _, f := range c.listeners {
 		f(*c.status)
 	}
+
+	return nil
 }
 
 func (c *Discovery) processUpdate(ctx context.Context, u download.Update) {
@@ -397,7 +418,6 @@ func (c *Discovery) processUpdate(ctx context.Context, u download.Update) {
 }
 
 func (c *Discovery) reconfigure(ctx context.Context, u download.Update) error {
-
 	ps, err := c.processBundle(ctx, u.Bundle)
 	if err != nil {
 		return err
@@ -422,7 +442,7 @@ func (c *Discovery) applyLocalPluginConfigOverride(conf *config.Config) (*config
 		return nil, nil, err
 	}
 
-	var newConfig map[string]interface{}
+	var newConfig map[string]any
 	err = util.Unmarshal(raw, &newConfig)
 	if err != nil {
 		return nil, nil, err
@@ -444,7 +464,6 @@ func (c *Discovery) applyLocalPluginConfigOverride(conf *config.Config) (*config
 }
 
 func (c *Discovery) processBundle(ctx context.Context, b *bundleApi.Bundle) (*pluginSet, error) {
-
 	config, err := evaluateBundle(ctx, c.manager.ID, c.manager.Info, b, c.config.query)
 	if err != nil {
 		return nil, err
@@ -466,7 +485,7 @@ func (c *Discovery) processBundle(ctx context.Context, b *bundleApi.Bundle) (*pl
 	// Note: We don't currently support changes to the discovery
 	// configuration. These changes are risky because errors would be
 	// unrecoverable (without keeping track of changes and rolling back...)
-	config.Discovery = c.manager.Config.Discovery
+	config.Discovery = c.manager.GetConfig().Discovery
 
 	// check for updates to the discovery service
 	opts := c.manager.DefaultServiceOpts(config)
@@ -509,7 +528,7 @@ func (c *Discovery) processBundle(ctx context.Context, b *bundleApi.Bundle) (*pl
 		return nil, err
 	}
 
-	ps, err := getPluginSet(c.factories, c.manager, overriddenConfig, c.metrics, c.config.Trigger)
+	ps, err := getPluginSet(c.factories, c.manager, overriddenConfig, c.metrics, c.logger, c.config.Trigger)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +548,6 @@ func (c *Discovery) discoveryBundleDirName() string {
 }
 
 func evaluateBundle(ctx context.Context, id string, info *ast.Term, b *bundleApi.Bundle, query string) (*config.Config, error) {
-
 	modules := b.ParsedModules("discovery")
 
 	compiler := ast.NewCompiler()
@@ -565,7 +583,8 @@ func evaluateBundle(ctx context.Context, id string, info *ast.Term, b *bundleApi
 		return nil, err
 	}
 
-	return config.ParseConfig(bs, id)
+	processedConf := cfg.SubEnvVars(string(bs))
+	return config.ParseConfig([]byte(processedConf), id)
 }
 
 type pluginSet struct {
@@ -574,21 +593,28 @@ type pluginSet struct {
 }
 
 type pluginreconfig struct {
-	Config interface{}
+	Config any
 	Plugin plugins.Plugin
 }
 
 type pluginfactory struct {
 	name    string
 	factory plugins.Factory
-	config  interface{}
+	config  any
 }
 
-func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager, config *config.Config, m metrics.Metrics, trigger *plugins.TriggerMode) (*pluginSet, error) {
-
+func getPluginSet(
+	factories map[string]plugins.Factory,
+	manager *plugins.Manager,
+	config *config.Config,
+	m metrics.Metrics,
+	l logging.Logger,
+	trigger *plugins.TriggerMode,
+) (*pluginSet, error) {
 	// Parse and validate plugin configurations.
 	pluginNames := []string{}
 	pluginFactories := []pluginfactory{}
+	serviceNames := manager.Services()
 
 	for k := range config.Plugins {
 		f, ok := factories[k]
@@ -613,12 +639,12 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 	// Parse and validate bundle/logs/status configurations.
 
 	// If `bundle` was configured use that, otherwise try the new `bundles` option
-	bundleConfig, err := bundle.ParseConfig(config.Bundle, manager.Services())
+	bundleConfig, err := bundle.ParseConfig(config.Bundle, serviceNames)
 	if err != nil {
 		return nil, err
 	}
 	if bundleConfig == nil {
-		bundleConfig, err = bundle.NewConfigBuilder().WithBytes(config.Bundles).WithServices(manager.Services()).
+		bundleConfig, err = bundle.NewConfigBuilder().WithBytes(config.Bundles).WithServices(serviceNames).
 			WithKeyConfigs(manager.PublicKeys()).WithTriggerMode(trigger).Parse()
 		if err != nil {
 			return nil, err
@@ -627,13 +653,13 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 		manager.Logger().Warn("Deprecated 'bundle' configuration specified. Use 'bundles' instead. See https://www.openpolicyagent.org/docs/latest/configuration/#bundles")
 	}
 
-	decisionLogsConfig, err := logs.NewConfigBuilder().WithBytes(config.DecisionLogs).WithServices(manager.Services()).
-		WithPlugins(pluginNames).WithTriggerMode(trigger).Parse()
+	decisionLogsConfig, err := logs.NewConfigBuilder().WithBytes(config.DecisionLogs).WithServices(serviceNames).
+		WithPlugins(pluginNames).WithTriggerMode(trigger).WithLogger(l).Parse()
 	if err != nil {
 		return nil, err
 	}
 
-	statusConfig, err := status.NewConfigBuilder().WithBytes(config.Status).WithServices(manager.Services()).
+	statusConfig, err := status.NewConfigBuilder().WithBytes(config.Status).WithServices(serviceNames).
 		WithPlugins(pluginNames).WithTriggerMode(trigger).Parse()
 	if err != nil {
 		return nil, err
@@ -648,7 +674,7 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 		if created {
 			starts = append(starts, p)
 		} else if p != nil {
-			reconfigs = append(reconfigs, pluginreconfig{bundleConfig, p})
+			reconfigs = append(reconfigs, pluginreconfig{Config: bundleConfig, Plugin: p})
 		}
 	}
 
@@ -657,7 +683,7 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 		if created {
 			starts = append(starts, p)
 		} else if p != nil {
-			reconfigs = append(reconfigs, pluginreconfig{decisionLogsConfig, p})
+			reconfigs = append(reconfigs, pluginreconfig{Config: decisionLogsConfig, Plugin: p})
 		}
 	}
 
@@ -666,11 +692,11 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 		if created {
 			starts = append(starts, p)
 		} else if p != nil {
-			reconfigs = append(reconfigs, pluginreconfig{statusConfig, p})
+			reconfigs = append(reconfigs, pluginreconfig{Config: statusConfig, Plugin: p})
 		}
 	}
 
-	result := &pluginSet{starts, reconfigs}
+	result := &pluginSet{Start: starts, Reconfig: reconfigs}
 
 	getCustomPlugins(manager, pluginFactories, result)
 
@@ -699,7 +725,6 @@ func getDecisionLogsPlugin(m *plugins.Manager, config *logs.Config, metrics metr
 }
 
 func getStatusPlugin(m *plugins.Manager, config *status.Config, metrics metrics.Metrics) (plugin *status.Plugin, created bool) {
-
 	plugin = status.Lookup(m)
 
 	if plugin == nil {
@@ -715,7 +740,7 @@ func getStatusPlugin(m *plugins.Manager, config *status.Config, metrics metrics.
 func getCustomPlugins(manager *plugins.Manager, factories []pluginfactory, result *pluginSet) {
 	for _, pf := range factories {
 		if plugin := manager.Plugin(pf.name); plugin != nil {
-			result.Reconfig = append(result.Reconfig, pluginreconfig{pf.config, plugin})
+			result.Reconfig = append(result.Reconfig, pluginreconfig{Config: pf.config, Plugin: plugin})
 		} else {
 			plugin := pf.factory.New(manager, pf.config)
 			manager.Register(pf.name, plugin)
@@ -743,7 +768,7 @@ func registerBundleStatusUpdates(m *plugins.Manager) {
 
 // mergeValuesAndListOverrides will merge source and destination map, preferring values from the source map.
 // It will also return a list of keys in the destination map which were overridden by those in the source map
-func mergeValuesAndListOverrides(dest map[string]interface{}, src map[string]interface{}, prefix string) (map[string]interface{}, []string) {
+func mergeValuesAndListOverrides(dest map[string]any, src map[string]any, prefix string) (map[string]any, []string) {
 	overriddenKeys := []string{}
 
 	for k, v := range src {
@@ -758,7 +783,7 @@ func mergeValuesAndListOverrides(dest map[string]interface{}, src map[string]int
 			fullKey = fmt.Sprintf("%v.%v", prefix, k)
 		}
 
-		nextMap, ok := v.(map[string]interface{})
+		nextMap, ok := v.(map[string]any)
 		// If it isn't another map, overwrite the value
 		if !ok {
 			if !reflect.DeepEqual(dest[k], v) {
@@ -768,7 +793,7 @@ func mergeValuesAndListOverrides(dest map[string]interface{}, src map[string]int
 			continue
 		}
 		// Edge case: If the key exists in the destination, but isn't a map
-		destMap, isMap := dest[k].(map[string]interface{})
+		destMap, isMap := dest[k].(map[string]any)
 		// If the source map has a map for this key, prefer it
 		if !isMap {
 			dest[k] = v

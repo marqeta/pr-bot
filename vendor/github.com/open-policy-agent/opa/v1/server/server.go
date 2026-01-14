@@ -19,28 +19,28 @@ import (
 	"net/http/pprof"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	serverDecodingPlugin "github.com/open-policy-agent/opa/v1/plugins/server/decoding"
-	serverEncodingPlugin "github.com/open-policy-agent/opa/v1/plugins/server/encoding"
-
-	"github.com/gorilla/mux"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/open-policy-agent/opa/internal/json/patch"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/bundle"
+	"github.com/open-policy-agent/opa/v1/hooks"
 	"github.com/open-policy-agent/opa/v1/logging"
 	"github.com/open-policy-agent/opa/v1/metrics"
 	"github.com/open-policy-agent/opa/v1/plugins"
 	bundlePlugin "github.com/open-policy-agent/opa/v1/plugins/bundle"
+	serverDecodingPlugin "github.com/open-policy-agent/opa/v1/plugins/server/decoding"
+	serverEncodingPlugin "github.com/open-policy-agent/opa/v1/plugins/server/encoding"
 	"github.com/open-policy-agent/opa/v1/plugins/status"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/open-policy-agent/opa/v1/server/authorizer"
@@ -69,8 +69,6 @@ const (
 	AuthenticationTLS
 )
 
-var supportedTLSVersions = []uint16{tls.VersionTLS10, tls.VersionTLS11, tls.VersionTLS12, tls.VersionTLS13}
-
 // AuthorizationScheme enumerates the supported authorization schemes. The authorization
 // scheme determines how access to OPA is controlled.
 type AuthorizationScheme int
@@ -81,10 +79,10 @@ const (
 	AuthorizationBasic
 )
 
-const defaultMinTLSVersion = tls.VersionTLS12
-
-// Set of handlers for use in the "handler" dimension of the duration metric.
 const (
+	defaultMinTLSVersion = tls.VersionTLS12
+
+	// Set of handlers for use in the "handler" dimension of the duration metric.
 	PromHandlerV0Data     = "v0/data"
 	PromHandlerV1Data     = "v1/data"
 	PromHandlerV1Query    = "v1/query"
@@ -96,22 +94,27 @@ const (
 	PromHandlerCatch      = "catchall"
 	PromHandlerHealth     = "health"
 	PromHandlerAPIAuthz   = "authz"
+
+	pqMaxCacheSize = 100
+
+	// OpenTelemetry attributes
+	otelDecisionIDAttr = "opa.decision_id"
 )
 
-const pqMaxCacheSize = 100
+var (
+	supportedTLSVersions       = []uint16{tls.VersionTLS10, tls.VersionTLS11, tls.VersionTLS12, tls.VersionTLS13}
+	unsafeBuiltinsMap          = map[string]struct{}{ast.HTTPSend.Name: {}}
+	intermediateResultsEnabled = os.Getenv("OPA_DECISIONS_INTERMEDIATE_RESULTS") != ""
+)
 
-// OpenTelemetry attributes
-const otelDecisionIDAttr = "opa.decision_id"
-
-// map of unsafe builtins
-var unsafeBuiltinsMap = map[string]struct{}{ast.HTTPSend.Name: {}}
+type IntermediateResultsContextKey struct{}
 
 // Server represents an instance of OPA running in server mode.
 type Server struct {
 	Handler           http.Handler
 	DiagnosticHandler http.Handler
 
-	router                      *mux.Router
+	router                      *http.ServeMux
 	addrs                       []string
 	diagAddrs                   []string
 	h2cEnabled                  bool
@@ -148,6 +151,10 @@ type Server struct {
 	ndbCacheEnabled             bool
 	unixSocketPerm              *string
 	cipherSuites                *[]uint16
+	hooks                       hooks.Hooks
+
+	compileUnknownsCache     *lru.Cache[string, []ast.Ref]
+	compileMaskingRulesCache *lru.Cache[string, ast.Ref]
 }
 
 // Metrics defines the interface that the server requires for recording HTTP
@@ -180,6 +187,8 @@ type Loop func() error
 // New returns a new Server.
 func New() *Server {
 	s := Server{}
+	s.compileUnknownsCache, _ = lru.New[string, []ast.Ref](unknownsCacheSize)
+	s.compileMaskingRulesCache, _ = lru.New[string, ast.Ref](maskingRuleCacheSize)
 	return &s
 }
 
@@ -187,6 +196,22 @@ func New() *Server {
 // from s.Listeners().
 func (s *Server) Init(ctx context.Context) (*Server, error) {
 	s.initRouters(ctx)
+	var err error
+	s.hooks.Each(func(h hooks.Hook) {
+		switch h := h.(type) {
+		case hooks.InterQueryCacheHook:
+			if e := h.OnInterQueryCache(ctx, s.interQueryBuiltinCache); e != nil {
+				err = errors.Join(err, e)
+			}
+		case hooks.InterQueryValueCacheHook:
+			if e := h.OnInterQueryValueCache(ctx, s.interQueryBuiltinValueCache); e != nil {
+				err = errors.Join(err, e)
+			}
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	txn, err := s.store.NewTransaction(ctx, storage.WriteParams)
 	if err != nil {
@@ -247,6 +272,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if len(errorList) > 0 {
 		errMsg := "error while shutting down: "
 		for i, err := range errorList {
+			//nolint:perfsprint
 			errMsg += fmt.Sprintf("(%d) %s. ", i, err.Error())
 		}
 		return errors.New(errMsg)
@@ -381,13 +407,13 @@ func (s *Server) WithRuntime(term *ast.Term) *Server {
 
 // WithRouter sets the mux.Router to attach OPA's HTTP API routes onto. If a
 // router is not supplied, the server will create it's own.
-func (s *Server) WithRouter(router *mux.Router) *Server {
+func (s *Server) WithRouter(router *http.ServeMux) *Server {
 	s.router = router
 	return s
 }
 
 func (s *Server) WithMinTLSVersion(minTLSVersion uint16) *Server {
-	if isMinTLSVersionSupported(minTLSVersion) {
+	if slices.Contains(supportedTLSVersions, minTLSVersion) {
 		s.minTLSVersion = minTLSVersion
 	} else {
 		s.minTLSVersion = defaultMinTLSVersion
@@ -398,6 +424,12 @@ func (s *Server) WithMinTLSVersion(minTLSVersion uint16) *Server {
 // WithDistributedTracingOpts sets the options to be used by distributed tracing.
 func (s *Server) WithDistributedTracingOpts(opts tracing.Options) *Server {
 	s.distributedTracingOpts = opts
+	return s
+}
+
+// WithHooks allows passing hooks to the server.
+func (s *Server) WithHooks(hs hooks.Hooks) *Server {
+	s.hooks = hs
 	return s
 }
 
@@ -581,15 +613,6 @@ func (b *baseHTTPListener) Type() httpListenerType {
 	return b.t
 }
 
-func isMinTLSVersionSupported(tlsVersion uint16) bool {
-	for _, version := range supportedTLSVersions {
-		if tlsVersion == version {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Server) getListener(addr string, h http.Handler, t httpListenerType) ([]Loop, httpListener, error) {
 	parsedURL, err := parseURL(addr, s.cert != nil)
 	if err != nil {
@@ -608,7 +631,7 @@ func (s *Server) getListener(addr string, h http.Handler, t httpListenerType) ([
 		loops = []Loop{loop}
 	case "https":
 		loop, listener, err = s.getListenerForHTTPSServer(parsedURL, h, t)
-		logger := s.manager.Logger().WithFields(map[string]interface{}{
+		logger := s.manager.Logger().WithFields(map[string]any{
 			"cert-file":     s.certFile,
 			"cert-key-file": s.certKeyFile,
 		})
@@ -643,7 +666,6 @@ func (s *Server) getListenerForHTTPServer(u *url.URL, h http.Handler, t httpList
 }
 
 func (s *Server) getListenerForHTTPSServer(u *url.URL, h http.Handler, t httpListenerType) (Loop, httpListener, error) {
-
 	if s.cert == nil {
 		return nil, nil, errors.New("TLS certificate required but not supplied")
 	}
@@ -746,11 +768,12 @@ func (s *Server) initHandlerAuthz(handler http.Handler) http.Handler {
 			s.getCompiler,
 			s.store,
 			authorizer.Runtime(s.runtime),
-			authorizer.Decision(s.manager.Config.DefaultAuthorizationDecisionRef),
+			authorizer.Decision(s.manager.GetConfig().DefaultAuthorizationDecisionRef),
 			authorizer.PrintHook(s.manager.PrintHook()),
 			authorizer.EnablePrintStatements(s.manager.EnablePrintStatements()),
 			authorizer.InterQueryCache(s.interQueryBuiltinCache),
-			authorizer.InterQueryValueCache(s.interQueryBuiltinValueCache))
+			authorizer.InterQueryValueCache(s.interQueryBuiltinValueCache),
+			authorizer.URLPathExpectsBodyFunc(s.manager.ExtraAuthorizerRoutes()))
 
 		if s.metrics != nil {
 			handler = s.instrumentHandler(handler.ServeHTTP, PromHandlerAPIAuthz)
@@ -764,10 +787,10 @@ func (s *Server) initHandlerAuthz(handler http.Handler) http.Handler {
 // it passes the size limit down the body-reading method via the request
 // context.
 func (s *Server) initHandlerDecodingLimits(handler http.Handler) (http.Handler, error) {
-	var decodingRawConfig json.RawMessage
-	serverConfig := s.manager.Config.Server
-	if serverConfig != nil {
-		decodingRawConfig = serverConfig.Decoding
+	cfg := s.manager.GetConfig()
+	var decodingRawConfig []byte
+	if cfg.Server != nil {
+		decodingRawConfig = []byte(cfg.Server.Decoding)
 	}
 	decodingConfig, err := serverDecodingPlugin.NewConfigBuilder().WithBytes(decodingRawConfig).Parse()
 	if err != nil {
@@ -779,10 +802,10 @@ func (s *Server) initHandlerDecodingLimits(handler http.Handler) (http.Handler, 
 }
 
 func (s *Server) initHandlerCompression(handler http.Handler) (http.Handler, error) {
-	var encodingRawConfig json.RawMessage
-	serverConfig := s.manager.Config.Server
-	if serverConfig != nil {
-		encodingRawConfig = serverConfig.Encoding
+	cfg := s.manager.GetConfig()
+	var encodingRawConfig []byte
+	if cfg.Server != nil {
+		encodingRawConfig = []byte(cfg.Server.Encoding)
 	}
 	encodingConfig, err := serverEncodingPlugin.NewConfigBuilder().WithBytes(encodingRawConfig).Parse()
 	if err != nil {
@@ -796,10 +819,10 @@ func (s *Server) initHandlerCompression(handler http.Handler) (http.Handler, err
 func (s *Server) initRouters(ctx context.Context) {
 	mainRouter := s.router
 	if mainRouter == nil {
-		mainRouter = mux.NewRouter()
+		mainRouter = http.NewServeMux()
 	}
 
-	diagRouter := mux.NewRouter()
+	diagRouter := http.NewServeMux()
 
 	// authorizer, if configured, needs the iCache to be set up already
 
@@ -817,94 +840,91 @@ func (s *Server) initRouters(ctx context.Context) {
 	handlerAuthzDiag := s.initHandlerAuthz(diagRouter)
 
 	// All routers get the same base configuration *and* diagnostic API's
-	for _, router := range []*mux.Router{mainRouter, diagRouter} {
-		router.StrictSlash(true)
-		router.UseEncodedPath()
-		router.StrictSlash(true)
-
+	for _, router := range []*http.ServeMux{mainRouter, diagRouter} {
 		if s.metrics != nil {
 			s.metrics.RegisterEndpoints(func(path, method string, handler http.Handler) {
-				router.Handle(path, handler).Methods(method)
+				router.Handle(fmt.Sprintf("%s %s", method, path), handler)
 			})
 		}
 
-		router.Handle("/health", s.instrumentHandler(s.unversionedGetHealth, PromHandlerHealth)).Methods(http.MethodGet)
+		router.Handle("GET /health", s.instrumentHandler(s.unversionedGetHealth, PromHandlerHealth))
 		// Use this route to evaluate health policy defined at system.health
 		// By convention, policy is typically defined at system.health.live and system.health.ready, and is
 		// evaluated by calling /health/live and /health/ready respectively.
-		router.Handle("/health/{path:.+}", s.instrumentHandler(s.unversionedGetHealthWithPolicy, PromHandlerHealth)).Methods(http.MethodGet)
+		router.Handle("GET /health/{path...}", s.instrumentHandler(s.unversionedGetHealthWithPolicy, PromHandlerHealth))
+	}
+
+	for p, r := range s.manager.ExtraRoutes() {
+		mainRouter.Handle(p, s.instrumentHandler(r.HandlerFunc, r.PromName))
 	}
 
 	if s.pprofEnabled {
-		mainRouter.HandleFunc("/debug/pprof/", pprof.Index)
-		mainRouter.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
-		mainRouter.Handle("/debug/pprof/block", pprof.Handler("block"))
-		mainRouter.Handle("/debug/pprof/heap", pprof.Handler("heap"))
-		mainRouter.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
-		mainRouter.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		mainRouter.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		mainRouter.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		mainRouter.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		mainRouter.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mainRouter.Handle("GET /debug/pprof/allocs", pprof.Handler("allocs"))
+		mainRouter.Handle("GET /debug/pprof/block", pprof.Handler("block"))
+		mainRouter.Handle("GET /debug/pprof/heap", pprof.Handler("heap"))
+		mainRouter.Handle("GET /debug/pprof/mutex", pprof.Handler("mutex"))
+		mainRouter.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+		mainRouter.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mainRouter.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mainRouter.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 	}
 
 	// Only the main mainRouter gets the OPA API's (data, policies, query, etc)
-	mainRouter.Handle("/v0/data/{path:.+}", s.instrumentHandler(s.v0DataPost, PromHandlerV0Data)).Methods(http.MethodPost)
-	mainRouter.Handle("/v0/data", s.instrumentHandler(s.v0DataPost, PromHandlerV0Data)).Methods(http.MethodPost)
-	mainRouter.Handle("/v1/data/{path:.+}", s.instrumentHandler(s.v1DataDelete, PromHandlerV1Data)).Methods(http.MethodDelete)
-	mainRouter.Handle("/v1/data/{path:.+}", s.instrumentHandler(s.v1DataPut, PromHandlerV1Data)).Methods(http.MethodPut)
-	mainRouter.Handle("/v1/data", s.instrumentHandler(s.v1DataPut, PromHandlerV1Data)).Methods(http.MethodPut)
-	mainRouter.Handle("/v1/data/{path:.+}", s.instrumentHandler(s.v1DataGet, PromHandlerV1Data)).Methods(http.MethodGet)
-	mainRouter.Handle("/v1/data", s.instrumentHandler(s.v1DataGet, PromHandlerV1Data)).Methods(http.MethodGet)
-	mainRouter.Handle("/v1/data/{path:.+}", s.instrumentHandler(s.v1DataPatch, PromHandlerV1Data)).Methods(http.MethodPatch)
-	mainRouter.Handle("/v1/data", s.instrumentHandler(s.v1DataPatch, PromHandlerV1Data)).Methods(http.MethodPatch)
-	mainRouter.Handle("/v1/data/{path:.+}", s.instrumentHandler(s.v1DataPost, PromHandlerV1Data)).Methods(http.MethodPost)
-	mainRouter.Handle("/v1/data", s.instrumentHandler(s.v1DataPost, PromHandlerV1Data)).Methods(http.MethodPost)
-	mainRouter.Handle("/v1/policies", s.instrumentHandler(s.v1PoliciesList, PromHandlerV1Policies)).Methods(http.MethodGet)
-	mainRouter.Handle("/v1/policies/{path:.+}", s.instrumentHandler(s.v1PoliciesDelete, PromHandlerV1Policies)).Methods(http.MethodDelete)
-	mainRouter.Handle("/v1/policies/{path:.+}", s.instrumentHandler(s.v1PoliciesGet, PromHandlerV1Policies)).Methods(http.MethodGet)
-	mainRouter.Handle("/v1/policies/{path:.+}", s.instrumentHandler(s.v1PoliciesPut, PromHandlerV1Policies)).Methods(http.MethodPut)
-	mainRouter.Handle("/v1/query", s.instrumentHandler(s.v1QueryGet, PromHandlerV1Query)).Methods(http.MethodGet)
-	mainRouter.Handle("/v1/query", s.instrumentHandler(s.v1QueryPost, PromHandlerV1Query)).Methods(http.MethodPost)
-	mainRouter.Handle("/v1/compile", s.instrumentHandler(s.v1CompilePost, PromHandlerV1Compile)).Methods(http.MethodPost)
-	mainRouter.Handle("/v1/config", s.instrumentHandler(s.v1ConfigGet, PromHandlerV1Config)).Methods(http.MethodGet)
-	mainRouter.Handle("/v1/status", s.instrumentHandler(s.v1StatusGet, PromHandlerV1Status)).Methods(http.MethodGet)
-	mainRouter.Handle("/", s.instrumentHandler(s.unversionedPost, PromHandlerIndex)).Methods(http.MethodPost)
-	mainRouter.Handle("/", s.instrumentHandler(s.indexGet, PromHandlerIndex)).Methods(http.MethodGet)
+	mainRouter.Handle("POST /v0/data/{path...}", s.instrumentHandler(s.v0DataPost, PromHandlerV0Data))
+	mainRouter.Handle("POST /v0/data", s.instrumentHandler(s.v0DataPost, PromHandlerV0Data))
+	mainRouter.Handle("DELETE /v1/data/{path...}", s.instrumentHandler(s.v1DataDelete, PromHandlerV1Data))
+	mainRouter.Handle("PUT /v1/data/{path...}", s.instrumentHandler(s.v1DataPut, PromHandlerV1Data))
+	mainRouter.Handle("PUT /v1/data", s.instrumentHandler(s.v1DataPut, PromHandlerV1Data))
+	mainRouter.Handle("GET /v1/data/{path...}", s.instrumentHandler(s.v1DataGet, PromHandlerV1Data))
+	mainRouter.Handle("GET /v1/data", s.instrumentHandler(s.v1DataGet, PromHandlerV1Data))
+	mainRouter.Handle("PATCH /v1/data/{path...}", s.instrumentHandler(s.v1DataPatch, PromHandlerV1Data))
+	mainRouter.Handle("PATCH /v1/data", s.instrumentHandler(s.v1DataPatch, PromHandlerV1Data))
+	mainRouter.Handle("POST /v1/data/{path...}", s.instrumentHandler(s.v1DataPost, PromHandlerV1Data))
+	mainRouter.Handle("POST /v1/data", s.instrumentHandler(s.v1DataPost, PromHandlerV1Data))
+	mainRouter.Handle("GET /v1/policies", s.instrumentHandler(s.v1PoliciesList, PromHandlerV1Policies))
+	mainRouter.Handle("DELETE /v1/policies/{path...}", s.instrumentHandler(s.v1PoliciesDelete, PromHandlerV1Policies))
+	mainRouter.Handle("GET /v1/policies/{path...}", s.instrumentHandler(s.v1PoliciesGet, PromHandlerV1Policies))
+	mainRouter.Handle("PUT /v1/policies/{path...}", s.instrumentHandler(s.v1PoliciesPut, PromHandlerV1Policies))
+	mainRouter.Handle("GET /v1/query", s.instrumentHandler(s.v1QueryGet, PromHandlerV1Query))
+	mainRouter.Handle("POST /v1/query", s.instrumentHandler(s.v1QueryPost, PromHandlerV1Query))
+	mainRouter.Handle("POST /v1/compile", s.instrumentHandler(s.v1CompilePost, PromHandlerV1Compile))
+	mainRouter.Handle("POST /v1/compile/{path...}", s.instrumentHandler(s.v1CompileFilters, PromHandlerV1Compile))
+	mainRouter.Handle("GET /v1/compile/{path...}", s.instrumentHandler(s.v1CompileFilters, PromHandlerV1Compile))
+	mainRouter.Handle("GET /v1/config", s.instrumentHandler(s.v1ConfigGet, PromHandlerV1Config))
+	mainRouter.Handle("GET /v1/status", s.instrumentHandler(s.v1StatusGet, PromHandlerV1Status))
+	mainRouter.Handle("POST /{$}", s.instrumentHandler(s.unversionedPost, PromHandlerIndex))
+	mainRouter.Handle("GET /{$}", s.instrumentHandler(s.indexGet, PromHandlerIndex))
 
 	// These are catch all handlers that respond http.StatusMethodNotAllowed for resources that exist but the method is not allowed
-	mainRouter.Handle("/v0/data/{path:.*}", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodGet, http.MethodHead,
-		http.MethodConnect, http.MethodDelete, http.MethodOptions, http.MethodPatch, http.MethodPut, http.MethodTrace)
-	mainRouter.Handle("/v0/data", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodGet, http.MethodHead,
-		http.MethodConnect, http.MethodDelete, http.MethodOptions, http.MethodPatch, http.MethodPut,
-		http.MethodTrace)
-	// v1 Data catch all
-	mainRouter.Handle("/v1/data/{path:.*}", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodHead,
-		http.MethodConnect, http.MethodOptions, http.MethodTrace)
-	mainRouter.Handle("/v1/data", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodHead,
-		http.MethodConnect, http.MethodDelete, http.MethodOptions, http.MethodTrace)
-	// Policies catch all
-	mainRouter.Handle("/v1/policies", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodHead,
-		http.MethodConnect, http.MethodDelete, http.MethodOptions, http.MethodTrace, http.MethodPost, http.MethodPut,
-		http.MethodPatch)
-	// Policies (/policies/{path.+} catch all
-	mainRouter.Handle("/v1/policies/{path:.*}", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodHead,
-		http.MethodConnect, http.MethodOptions, http.MethodTrace, http.MethodPost)
-	// Query catch all
-	mainRouter.Handle("/v1/query/{path:.*}", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodHead,
-		http.MethodConnect, http.MethodDelete, http.MethodOptions, http.MethodTrace, http.MethodPost, http.MethodPut, http.MethodPatch)
-	mainRouter.Handle("/v1/query", s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)).Methods(http.MethodHead,
-		http.MethodConnect, http.MethodDelete, http.MethodOptions, http.MethodTrace, http.MethodPut, http.MethodPatch)
-
-	s.Handler = mainRouter
-	s.DiagnosticHandler = diagRouter
+	mainRouter.Handle("/v0/data/{path...}", s.methodNotAllowedHandler())
+	mainRouter.Handle("/v0/data", s.methodNotAllowedHandler())
+	mainRouter.Handle("/v1/data/{path...}", s.methodNotAllowedHandler())
+	mainRouter.Handle("/v1/data", s.methodNotAllowedHandler())
+	mainRouter.Handle("/v1/policies", s.methodNotAllowedHandler())
+	mainRouter.Handle("/v1/policies/{path...}", s.methodNotAllowedHandler())
+	mainRouter.Handle("/v1/query/{path...}", s.methodNotAllowedHandler())
+	mainRouter.Handle("/v1/query", s.methodNotAllowedHandler())
 
 	// Add authorization handler in the end so that it can run first
 	s.Handler = handlerAuthz
 	s.DiagnosticHandler = handlerAuthzDiag
 }
 
+func createMiddleware(mw ...func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(hnd http.Handler) http.Handler {
+		next := hnd
+		for k := len(mw) - 1; k >= 0; k-- {
+			next = mw[k](next)
+		}
+		return next
+	}
+}
+
 func (s *Server) instrumentHandler(handler func(http.ResponseWriter, *http.Request), label string) http.Handler {
-	var httpHandler http.Handler = http.HandlerFunc(handler)
+	httpHandler := handlers.DefaultHandler(createMiddleware(
+		s.manager.ExtraMiddlewares()...,
+	)(http.HandlerFunc(handler)))
 	if len(s.distributedTracingOpts) > 0 {
 		httpHandler = tracing.NewHandler(httpHandler, label, s.distributedTracingOpts)
 	}
@@ -914,9 +934,13 @@ func (s *Server) instrumentHandler(handler func(http.ResponseWriter, *http.Reque
 	return httpHandler
 }
 
-func (s *Server) execQuery(ctx context.Context, br bundleRevisions, txn storage.Transaction, parsedQuery ast.Body, input ast.Value, rawInput *interface{}, m metrics.Metrics, explainMode types.ExplainModeV1, includeMetrics, includeInstrumentation, pretty bool) (*types.QueryResponseV1, error) {
+func (s *Server) methodNotAllowedHandler() http.Handler {
+	return s.instrumentHandler(writer.HTTPStatus(http.StatusMethodNotAllowed), PromHandlerCatch)
+}
+
+func (s *Server) execQuery(ctx context.Context, br bundleRevisions, txn storage.Transaction, parsedQuery ast.Body, input ast.Value, rawInput *any, m metrics.Metrics, explainMode types.ExplainModeV1, includeMetrics, includeInstrumentation, pretty bool) (*types.QueryResponseV1, error) {
 	results := types.QueryResponseV1{}
-	logger := s.getDecisionLogger(br)
+	ctx, logger := s.getDecisionLogger(ctx, br)
 
 	var buf *topdown.BufferTracer
 	if explainMode != types.ExplainOffV1 {
@@ -957,7 +981,7 @@ func (s *Server) execQuery(ctx context.Context, br bundleRevisions, txn storage.
 
 	output, err := rego.Eval(ctx)
 	if err != nil {
-		_ = logger.Log(ctx, txn, "", parsedQuery.String(), rawInput, input, nil, ndbCache, err, m)
+		_ = logger.Log(ctx, txn, "", parsedQuery.String(), rawInput, input, nil, ndbCache, err, m, nil)
 		return nil, err
 	}
 
@@ -973,8 +997,8 @@ func (s *Server) execQuery(ctx context.Context, br bundleRevisions, txn storage.
 		results.Explanation = s.getExplainResponse(explainMode, *buf, pretty)
 	}
 
-	var x interface{} = results.Result
-	if err := logger.Log(ctx, txn, "", parsedQuery.String(), rawInput, input, &x, ndbCache, nil, m); err != nil {
+	var x any = results.Result
+	if err := logger.Log(ctx, txn, "", parsedQuery.String(), rawInput, input, &x, ndbCache, nil, m, nil); err != nil {
 		return nil, err
 	}
 	return &results, nil
@@ -1000,7 +1024,6 @@ type bundleRevisions struct {
 }
 
 func getRevisions(ctx context.Context, store storage.Store, txn storage.Transaction) (bundleRevisions, error) {
-
 	var err error
 	var br bundleRevisions
 	br.Revisions = map[string]string{}
@@ -1028,8 +1051,7 @@ func getRevisions(ctx context.Context, store storage.Store, txn storage.Transact
 	return br, nil
 }
 
-func (s *Server) reload(context.Context, storage.Transaction, storage.TriggerEvent) {
-
+func (s *Server) reload(_ context.Context, _ storage.Transaction, evt storage.TriggerEvent) {
 	// NOTE(tsandall): We currently rely on the storage txn to provide
 	// critical sections in the server.
 	//
@@ -1041,6 +1063,10 @@ func (s *Server) reload(context.Context, storage.Transaction, storage.TriggerEve
 	s.partials = map[string]rego.PartialResult{}
 	s.preparedEvalQueries = newCache(pqMaxCacheSize)
 	s.defaultDecisionPath = s.generateDefaultDecisionPath()
+	if evt.PolicyChanged() {
+		s.compileUnknownsCache.Purge()
+		s.compileMaskingRulesCache.Purge()
+	}
 }
 
 func (s *Server) unversionedPost(w http.ResponseWriter, r *http.Request) {
@@ -1048,7 +1074,7 @@ func (s *Server) unversionedPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) v0DataPost(w http.ResponseWriter, r *http.Request) {
-	s.v0QueryPath(w, r, mux.Vars(r)["path"], false)
+	s.v0QueryPath(w, r, escapedPathValue(r, "path"), false)
 }
 
 func (s *Server) v0QueryPath(w http.ResponseWriter, r *http.Request, urlPath string, useDefaultDecisionPath bool) {
@@ -1084,7 +1110,7 @@ func (s *Server) v0QueryPath(w http.ResponseWriter, r *http.Request, urlPath str
 		urlPath = s.generateDefaultDecisionPath()
 	}
 
-	logger := s.getDecisionLogger(br)
+	ctx, logger := s.getDecisionLogger(ctx, br)
 
 	var ndbCache builtins.NDBCache
 	if s.ndbCacheEnabled {
@@ -1109,14 +1135,14 @@ func (s *Server) v0QueryPath(w http.ResponseWriter, r *http.Request, urlPath str
 
 		rego, err := s.makeRego(ctx, false, txn, input, urlPath, m, false, nil, opts)
 		if err != nil {
-			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 			writer.ErrorAuto(w, err)
 			return
 		}
 
 		pq, err := rego.PrepareForEval(ctx)
 		if err != nil {
-			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 			writer.ErrorAuto(w, err)
 			return
 		}
@@ -1142,7 +1168,7 @@ func (s *Server) v0QueryPath(w http.ResponseWriter, r *http.Request, urlPath str
 
 	// Handle results.
 	if err != nil {
-		_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+		_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 		writer.ErrorAuto(w, err)
 		return
 	}
@@ -1154,12 +1180,12 @@ func (s *Server) v0QueryPath(w http.ResponseWriter, r *http.Request, urlPath str
 			return
 		}
 
-		var messageType = types.MsgMissingError
+		messageType := types.MsgMissingError
 		if len(s.getCompiler().GetRulesForVirtualDocument(ref)) > 0 {
 			messageType = types.MsgFoundUndefinedError
 		}
 		errV1 := types.NewErrorV1(types.CodeUndefinedDocument, "%v: %v", messageType, ref)
-		if err := logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, errV1, m); err != nil {
+		if err := logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, errV1, m, nil); err != nil {
 			writer.ErrorAuto(w, err)
 			return
 		}
@@ -1167,7 +1193,7 @@ func (s *Server) v0QueryPath(w http.ResponseWriter, r *http.Request, urlPath str
 		writer.Error(w, http.StatusNotFound, errV1)
 		return
 	}
-	err = logger.Log(ctx, txn, urlPath, "", goInput, input, &rs[0].Expressions[0].Value, ndbCache, nil, m)
+	err = logger.Log(ctx, txn, urlPath, "", goInput, input, &rs[0].Expressions[0].Value, ndbCache, nil, m, nil)
 	if err != nil {
 		writer.ErrorAuto(w, err)
 		return
@@ -1178,9 +1204,9 @@ func (s *Server) v0QueryPath(w http.ResponseWriter, r *http.Request, urlPath str
 
 func (s *Server) getCachedPreparedEvalQuery(key string, m metrics.Metrics) (*rego.PreparedEvalQuery, bool) {
 	pq, ok := s.preparedEvalQueries.Get(key)
-	m.Counter(metrics.ServerQueryCacheHit) // Creates the counter on the metrics if it doesn't exist, starts at 0
+	counter := m.Counter(metrics.ServerQueryCacheHit) // Creates the counter on m if it doesn't exist, starts at 0
 	if ok {
-		m.Counter(metrics.ServerQueryCacheHit).Incr() // Increment counter on hit
+		counter.Incr() // Increment counter on hit
 		return pq.(*rego.PreparedEvalQuery), true
 	}
 	return nil, false
@@ -1218,7 +1244,6 @@ func (s *Server) canEval(ctx context.Context) bool {
 }
 
 func (*Server) bundlesReady(pluginStatuses map[string]*plugins.Status) bool {
-
 	// Look for a discovery plugin first, if it exists and isn't ready
 	// then don't bother with the others.
 	// Note: use "discovery" instead of `discovery.Name` to avoid import
@@ -1294,7 +1319,7 @@ func (s *Server) unversionedGetHealthWithPolicy(w http.ResponseWriter, r *http.R
 	allPluginsOk := true
 
 	// build input document for health check query
-	input := func() map[string]interface{} {
+	input := func() map[string]any {
 		s.mtx.Lock()
 		defer s.mtx.Unlock()
 
@@ -1314,15 +1339,13 @@ func (s *Server) unversionedGetHealthWithPolicy(w http.ResponseWriter, r *http.R
 			s.allPluginsOkOnce = true
 		}
 
-		return map[string]interface{}{
+		return map[string]any{
 			"plugin_state":  pluginState,
 			"plugins_ready": s.allPluginsOkOnce,
 		}
 	}()
 
-	vars := mux.Vars(r)
-	urlPath := vars["path"]
-	healthDataPath := "/system/health/" + urlPath
+	healthDataPath := "/system/health/" + escapedPathValue(r, "path")
 
 	healthDataPathQuery, err := stringPathToQuery(healthDataPath)
 	if err != nil {
@@ -1370,7 +1393,7 @@ func writeHealthResponse(w http.ResponseWriter, err error) {
 
 func (s *Server) v1CompilePost(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	explainMode := getExplain(r.URL.Query()[types.ParamExplainV1], types.ExplainOffV1)
+	explainMode := getExplain(r.URL, types.ExplainOffV1)
 	includeInstrumentation := getBoolParam(r.URL, types.ParamInstrumentV1, true)
 
 	m := metrics.New()
@@ -1448,7 +1471,7 @@ func (s *Server) v1CompilePost(w http.ResponseWriter, r *http.Request) {
 		result.Explanation = s.getExplainResponse(explainMode, *buf, pretty(r))
 	}
 
-	var i interface{} = types.PartialEvaluationResultV1{
+	var i any = types.PartialEvaluationResultV1{
 		Queries: pq.Queries,
 		Support: pq.Support,
 	}
@@ -1467,9 +1490,8 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 	ctx := logging.WithDecisionID(r.Context(), decisionID)
 	annotateSpan(ctx, decisionID)
 
-	vars := mux.Vars(r)
-	urlPath := vars["path"]
-	explainMode := getExplain(r.URL.Query()["explain"], types.ExplainOffV1)
+	urlPath := escapedPathValue(r, "path")
+	explainMode := getExplain(r.URL, types.ExplainOffV1)
 	includeInstrumentation := getBoolParam(r.URL, types.ParamInstrumentV1, true)
 	provenance := getBoolParam(r.URL, types.ParamProvenanceV1, true)
 	strictBuiltinErrors := getBoolParam(r.URL, types.ParamStrictBuiltinErrors, true)
@@ -1479,7 +1501,7 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 	inputs := r.URL.Query()[types.ParamInputV1]
 
 	var input ast.Value
-	var goInput *interface{}
+	var goInput *any
 
 	if len(inputs) > 0 {
 		var err error
@@ -1507,7 +1529,7 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger := s.getDecisionLogger(br)
+	ctx, logger := s.getDecisionLogger(ctx, br)
 
 	var ndbCache builtins.NDBCache
 	if s.ndbCacheEnabled {
@@ -1540,14 +1562,14 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 
 		rego, err := s.makeRego(ctx, strictBuiltinErrors, txn, input, urlPath, m, includeInstrumentation, buf, opts)
 		if err != nil {
-			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 			writer.ErrorAuto(w, err)
 			return
 		}
 
 		pq, err := rego.PrepareForEval(ctx)
 		if err != nil {
-			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 			writer.ErrorAuto(w, err)
 			return
 		}
@@ -1575,7 +1597,7 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 
 	// Handle results.
 	if err != nil {
-		_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+		_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 		writer.ErrorAuto(w, err)
 		return
 	}
@@ -1601,7 +1623,7 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if err := logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, nil, m); err != nil {
+		if err := logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, nil, m, nil); err != nil {
 			writer.ErrorAuto(w, err)
 			return
 		}
@@ -1615,7 +1637,7 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 		result.Explanation = s.getExplainResponse(explainMode, *buf, pretty(r))
 	}
 
-	if err := logger.Log(ctx, txn, urlPath, "", goInput, input, result.Result, ndbCache, nil, m); err != nil {
+	if err := logger.Log(ctx, txn, urlPath, "", goInput, input, result.Result, ndbCache, nil, m, nil); err != nil {
 		writer.ErrorAuto(w, err)
 		return
 	}
@@ -1625,10 +1647,8 @@ func (s *Server) v1DataGet(w http.ResponseWriter, r *http.Request) {
 func (s *Server) v1DataPatch(w http.ResponseWriter, r *http.Request) {
 	m := metrics.New()
 	m.Timer(metrics.ServerHandler).Start()
-	defer m.Timer(metrics.ServerHandler).Stop()
 
 	ctx := r.Context()
-	vars := mux.Vars(r)
 	var ops []types.PatchV1
 
 	m.Timer(metrics.RegoInputParse).Start()
@@ -1638,7 +1658,7 @@ func (s *Server) v1DataPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	m.Timer(metrics.RegoInputParse).Stop()
 
-	patches, err := s.prepareV1PatchSlice(vars["path"], ops)
+	patches, err := s.prepareV1PatchSlice(escapedPathValue(r, "path"), ops)
 	if err != nil {
 		writer.ErrorAuto(w, err)
 		return
@@ -1675,6 +1695,8 @@ func (s *Server) v1DataPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	m.Timer(metrics.ServerHandler).Stop()
+
 	if includeMetrics(r) {
 		result := types.DataResponseV1{
 			Metrics: m.All(),
@@ -1687,19 +1709,12 @@ func (s *Server) v1DataPatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
-	m := metrics.New()
+	m := s.getMetrics(r)
 	m.Timer(metrics.ServerHandler).Start()
 
 	decisionID := s.generateDecisionID()
 	ctx := logging.WithDecisionID(r.Context(), decisionID)
 	annotateSpan(ctx, decisionID)
-
-	vars := mux.Vars(r)
-	urlPath := vars["path"]
-	explainMode := getExplain(r.URL.Query()[types.ParamExplainV1], types.ExplainOffV1)
-	includeInstrumentation := getBoolParam(r.URL, types.ParamInstrumentV1, true)
-	provenance := getBoolParam(r.URL, types.ParamProvenanceV1, true)
-	strictBuiltinErrors := getBoolParam(r.URL, types.ParamStrictBuiltinErrors, true)
 
 	m.Timer(metrics.RegoInputParse).Start()
 
@@ -1719,28 +1734,42 @@ func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
 
 	defer s.store.Abort(ctx, txn)
 
-	br, err := getRevisions(ctx, s.store, txn)
-	if err != nil {
-		writer.ErrorAuto(w, err)
-		return
+	provenance := getBoolParam(r.URL, types.ParamProvenanceV1, true)
+
+	var logger decisionLogger
+	var br bundleRevisions
+
+	if s.logger != nil || provenance {
+		br, err = getRevisions(ctx, s.store, txn)
+		if err != nil {
+			writer.ErrorAuto(w, err)
+			return
+		}
+		if s.logger != nil {
+			ctx, logger = s.getDecisionLogger(ctx, br)
+		}
 	}
 
-	logger := s.getDecisionLogger(br)
+	var buf *topdown.BufferTracer
+
+	explainMode := getExplain(r.URL, types.ExplainOffV1)
+	if explainMode != types.ExplainOffV1 {
+		buf = topdown.NewBufferTracer()
+	}
 
 	var ndbCache builtins.NDBCache
 	if s.ndbCacheEnabled {
 		ndbCache = builtins.NDBCache{}
 	}
 
-	var buf *topdown.BufferTracer
+	urlPath := escapedPathValue(r, "path")
 
-	if explainMode != types.ExplainOffV1 {
-		buf = topdown.NewBufferTracer()
-	}
+	strictBuiltinErrors := getBoolParam(r.URL, types.ParamStrictBuiltinErrors, true)
+	includeInstrumentation := getBoolParam(r.URL, types.ParamInstrumentV1, true)
 
 	pqID := "v1DataPost::"
 	if strictBuiltinErrors {
-		pqID += "strict-builtin-errors::"
+		pqID = "v1DataPost::strict-builtin-errors::"
 	}
 	pqID += urlPath
 	preparedQuery, ok := s.getCachedPreparedEvalQuery(pqID, m)
@@ -1760,14 +1789,14 @@ func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
 
 		rego, err := s.makeRego(ctx, strictBuiltinErrors, txn, input, urlPath, m, includeInstrumentation, buf, opts)
 		if err != nil {
-			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 			writer.ErrorAuto(w, err)
 			return
 		}
 
 		pq, err := rego.PrepareForEval(ctx)
 		if err != nil {
-			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+			_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 			writer.ErrorAuto(w, err)
 			return
 		}
@@ -1775,7 +1804,7 @@ func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
 		s.preparedEvalQueries.Insert(pqID, preparedQuery)
 	}
 
-	evalOpts := []rego.EvalOption{
+	rs, err := preparedQuery.Eval(ctx,
 		rego.EvalTransaction(txn),
 		rego.EvalParsedInput(input),
 		rego.EvalMetrics(m),
@@ -1784,18 +1813,13 @@ func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
 		rego.EvalInterQueryBuiltinValueCache(s.interQueryBuiltinValueCache),
 		rego.EvalInstrument(includeInstrumentation),
 		rego.EvalNDBuiltinCache(ndbCache),
-	}
-
-	rs, err := preparedQuery.Eval(
-		ctx,
-		evalOpts...,
 	)
 
 	m.Timer(metrics.ServerHandler).Stop()
 
 	// Handle results.
 	if err != nil {
-		_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m)
+		_ = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, err, m, nil)
 		writer.ErrorAuto(w, err)
 		return
 	}
@@ -1808,7 +1832,8 @@ func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
 		result.Warning = types.NewWarning(types.CodeAPIUsageWarn, types.MsgInputKeyMissing)
 	}
 
-	if includeMetrics(r) || includeInstrumentation {
+	includeMetrics := getBoolParam(r.URL, types.ParamMetricsV1, true)
+	if includeMetrics || includeInstrumentation {
 		result.Metrics = m.All()
 	}
 
@@ -1818,14 +1843,12 @@ func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
 
 	if len(rs) == 0 {
 		if explainMode == types.ExplainFullV1 {
-			result.Explanation, err = types.NewTraceV1(lineage.Full(*buf), pretty(r))
-			if err != nil {
+			if result.Explanation, err = types.NewTraceV1(lineage.Full(*buf), pretty(r)); err != nil {
 				writer.ErrorAuto(w, err)
 				return
 			}
 		}
-		err = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, nil, m)
-		if err != nil {
+		if err = logger.Log(ctx, txn, urlPath, "", goInput, input, nil, ndbCache, nil, m, nil); err != nil {
 			writer.ErrorAuto(w, err)
 			return
 		}
@@ -1839,32 +1862,47 @@ func (s *Server) v1DataPost(w http.ResponseWriter, r *http.Request) {
 		result.Explanation = s.getExplainResponse(explainMode, *buf, pretty(r))
 	}
 
-	if err := logger.Log(ctx, txn, urlPath, "", goInput, input, result.Result, ndbCache, nil, m); err != nil {
+	if err := logger.Log(ctx, txn, urlPath, "", goInput, input, result.Result, ndbCache, nil, m, nil); err != nil {
 		writer.ErrorAuto(w, err)
 		return
 	}
 	writer.JSONOK(w, result, pretty(r))
 }
 
+func escapedPathValue(r *http.Request, key string) string {
+	pathValue := r.PathValue(key)
+	escaped := r.URL.EscapedPath()
+	if !strings.Contains(escaped, "%") {
+		return pathValue
+	}
+
+	i := strings.Index(r.URL.Path, pathValue)
+	if i == -1 || i > len(escaped) {
+		return pathValue
+	}
+
+	return escaped[i:]
+}
+
 func (s *Server) v1DataPut(w http.ResponseWriter, r *http.Request) {
 	m := metrics.New()
 	m.Timer(metrics.ServerHandler).Start()
-	defer m.Timer(metrics.ServerHandler).Stop()
 
 	ctx := r.Context()
-	vars := mux.Vars(r)
 
 	m.Timer(metrics.RegoInputParse).Start()
-	var value interface{}
+	var value any
 	if err := util.NewJSONDecoder(r.Body).Decode(&value); err != nil {
 		writer.ErrorString(w, http.StatusBadRequest, types.CodeInvalidParameter, err)
 		return
 	}
 	m.Timer(metrics.RegoInputParse).Stop()
 
-	path, ok := storage.ParsePathEscaped("/" + strings.Trim(vars["path"], "/"))
+	pv := escapedPathValue(r, "path")
+
+	path, ok := storage.ParsePathEscaped("/" + strings.Trim(pv, "/"))
 	if !ok {
-		writer.Error(w, http.StatusBadRequest, types.NewErrorV1(types.CodeInvalidParameter, "bad path: %v", vars["path"]))
+		writer.Error(w, http.StatusBadRequest, types.NewErrorV1(types.CodeInvalidParameter, "bad path: %v", pv))
 		return
 	}
 
@@ -1915,6 +1953,8 @@ func (s *Server) v1DataPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	m.Timer(metrics.ServerHandler).Stop()
+
 	if includeMetrics(r) {
 		result := types.DataResponseV1{
 			Metrics: m.All(),
@@ -1929,14 +1969,13 @@ func (s *Server) v1DataPut(w http.ResponseWriter, r *http.Request) {
 func (s *Server) v1DataDelete(w http.ResponseWriter, r *http.Request) {
 	m := metrics.New()
 	m.Timer(metrics.ServerHandler).Start()
-	defer m.Timer(metrics.ServerHandler).Stop()
 
 	ctx := r.Context()
-	vars := mux.Vars(r)
 
-	path, ok := storage.ParsePathEscaped("/" + strings.Trim(vars["path"], "/"))
+	pv := escapedPathValue(r, "path")
+	path, ok := storage.ParsePathEscaped("/" + strings.Trim(pv, "/"))
 	if !ok {
-		writer.Error(w, http.StatusBadRequest, types.NewErrorV1(types.CodeInvalidParameter, "bad path: %v", vars["path"]))
+		writer.Error(w, http.StatusBadRequest, types.NewErrorV1(types.CodeInvalidParameter, "bad path: %v", pv))
 		return
 	}
 
@@ -1969,6 +2008,8 @@ func (s *Server) v1DataDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	m.Timer(metrics.ServerHandler).Stop()
+
 	if includeMetrics(r) {
 		result := types.DataResponseV1{
 			Metrics: m.All(),
@@ -1981,32 +2022,25 @@ func (s *Server) v1DataDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) v1PoliciesDelete(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-
-	id, err := url.PathUnescape(vars["path"])
-	if err != nil {
-		writer.ErrorString(w, http.StatusBadRequest, types.CodeInvalidParameter, err)
-		return
-	}
+	id := r.PathValue("path")
 
 	m := metrics.New()
 	params := storage.WriteParams
 	params.Context = storage.NewContext().WithMetrics(m)
-	txn, err := s.store.NewTransaction(ctx, params)
+	txn, err := s.store.NewTransaction(r.Context(), params)
 	if err != nil {
 		writer.ErrorAuto(w, err)
 		return
 	}
 
-	if err := s.checkPolicyIDScope(ctx, txn, id); err != nil {
-		s.abortAuto(ctx, txn, w, err)
+	if err := s.checkPolicyIDScope(r.Context(), txn, id); err != nil {
+		s.abortAuto(r.Context(), txn, w, err)
 		return
 	}
 
-	modules, err := s.loadModules(ctx, txn)
+	modules, err := s.loadModules(r.Context(), txn)
 	if err != nil {
-		s.abortAuto(ctx, txn, w, err)
+		s.abortAuto(r.Context(), txn, w, err)
 		return
 	}
 
@@ -2017,7 +2051,7 @@ func (s *Server) v1PoliciesDelete(w http.ResponseWriter, r *http.Request) {
 	m.Timer(metrics.RegoModuleCompile).Start()
 
 	if c.Compile(modules); c.Failed() {
-		s.abort(ctx, txn, func() {
+		s.abort(r.Context(), txn, func() {
 			writer.Error(w, http.StatusBadRequest, types.NewErrorV1(types.CodeInvalidOperation, types.MsgCompileModuleError).WithASTErrors(c.Errors))
 		})
 		return
@@ -2025,12 +2059,12 @@ func (s *Server) v1PoliciesDelete(w http.ResponseWriter, r *http.Request) {
 
 	m.Timer(metrics.RegoModuleCompile).Stop()
 
-	if err := s.store.DeletePolicy(ctx, txn, id); err != nil {
-		s.abortAuto(ctx, txn, w, err)
+	if err := s.store.DeletePolicy(r.Context(), txn, id); err != nil {
+		s.abortAuto(r.Context(), txn, w, err)
 		return
 	}
 
-	if err := s.store.Commit(ctx, txn); err != nil {
+	if err := s.store.Commit(r.Context(), txn); err != nil {
 		writer.ErrorAuto(w, err)
 		return
 	}
@@ -2044,36 +2078,27 @@ func (s *Server) v1PoliciesDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) v1PoliciesGet(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-
-	path, err := url.PathUnescape(vars["path"])
-	if err != nil {
-		writer.ErrorString(w, http.StatusBadRequest, types.CodeInvalidParameter, err)
-		return
-	}
-
-	txn, err := s.store.NewTransaction(ctx)
+	txn, err := s.store.NewTransaction(r.Context())
 	if err != nil {
 		writer.ErrorAuto(w, err)
 		return
 	}
 
-	defer s.store.Abort(ctx, txn)
+	defer s.store.Abort(r.Context(), txn)
 
-	bs, err := s.store.GetPolicy(ctx, txn, path)
+	path := r.PathValue("path")
+
+	bs, err := s.store.GetPolicy(r.Context(), txn, path)
 	if err != nil {
 		writer.ErrorAuto(w, err)
 		return
 	}
-
-	c := s.getCompiler()
 
 	resp := types.PolicyGetResponseV1{
 		Result: types.PolicyV1{
 			ID:  path,
 			Raw: string(bs),
-			AST: c.Modules[path],
+			AST: s.getCompiler().Modules[path],
 		},
 	}
 
@@ -2081,7 +2106,6 @@ func (s *Server) v1PoliciesGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) v1PoliciesList(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	txn, err := s.store.NewTransaction(ctx)
@@ -2121,13 +2145,7 @@ func (s *Server) v1PoliciesList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) v1PoliciesPut(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	vars := mux.Vars(r)
-
-	id, err := url.PathUnescape(vars["path"])
-	if err != nil {
-		writer.ErrorString(w, http.StatusBadRequest, types.CodeInvalidParameter, err)
-		return
-	}
+	id := r.PathValue("path")
 
 	includeMetrics := includeMetrics(r)
 	m := metrics.New()
@@ -2266,7 +2284,7 @@ func (s *Server) v1QueryGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	explainMode := getExplain(r.URL.Query()["explain"], types.ExplainOffV1)
+	explainMode := getExplain(r.URL, types.ExplainOffV1)
 	includeInstrumentation := getBoolParam(r.URL, types.ParamInstrumentV1, true)
 
 	params := storage.TransactionParams{Context: storage.NewContext().WithMetrics(m)}
@@ -2325,7 +2343,7 @@ func (s *Server) v1QueryPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pretty := pretty(r)
-	explainMode := getExplain(r.URL.Query()["explain"], types.ExplainOffV1)
+	explainMode := getExplain(r.URL, types.ExplainOffV1)
 	includeMetrics := includeMetrics(r)
 	includeInstrumentation := getBoolParam(r.URL, types.ParamInstrumentV1, true)
 
@@ -2375,11 +2393,12 @@ func (s *Server) v1QueryPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) v1ConfigGet(w http.ResponseWriter, r *http.Request) {
-	result, err := s.manager.Config.ActiveConfig()
+	result, err := s.manager.GetConfig().ActiveConfig()
 	if err != nil {
 		writer.ErrorAuto(w, err)
 		return
 	}
+
 	writer.JSONOK(w, types.ConfigResponseV1{Result: &result}, pretty(r))
 }
 
@@ -2390,12 +2409,11 @@ func (s *Server) v1StatusGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var st interface{} = p.Snapshot()
+	var st any = p.Snapshot()
 	writer.JSONOK(w, types.StatusResponseV1{Result: &st}, pretty(r))
 }
 
 func (s *Server) checkPolicyIDScope(ctx context.Context, txn storage.Transaction, id string) error {
-
 	bs, err := s.store.GetPolicy(ctx, txn, id)
 	if err != nil {
 		return err
@@ -2410,7 +2428,6 @@ func (s *Server) checkPolicyIDScope(ctx context.Context, txn storage.Transaction
 }
 
 func (s *Server) checkPolicyPackageScope(ctx context.Context, txn storage.Transaction, pkg *ast.Package) error {
-
 	path, err := pkg.Path.Ptr()
 	if err != nil {
 		return err
@@ -2424,8 +2441,18 @@ func (s *Server) checkPolicyPackageScope(ctx context.Context, txn storage.Transa
 	return s.checkPathScope(ctx, txn, spath)
 }
 
-func (s *Server) checkPathScope(ctx context.Context, txn storage.Transaction, path storage.Path) error {
+func (s *Server) getMetrics(r *http.Request) metrics.Metrics {
+	metricsInQuery := getBoolParam(r.URL, types.ParamMetricsV1, true)
+	instrumentationInQuery := getBoolParam(r.URL, types.ParamInstrumentV1, true)
 
+	if s.logger == nil && !metricsInQuery && !instrumentationInQuery {
+		return metrics.NoOp()
+	}
+
+	return metrics.New()
+}
+
+func (s *Server) checkPathScope(ctx context.Context, txn storage.Transaction, path storage.Path) error {
 	names, err := bundle.ReadBundleNamesFromStore(ctx, s.store, txn)
 	if err != nil {
 		if !storage.IsNotFound(err) {
@@ -2468,7 +2495,12 @@ func (s *Server) checkPathScope(ctx context.Context, txn storage.Transaction, pa
 	return nil
 }
 
-func (s *Server) getDecisionLogger(br bundleRevisions) (logger decisionLogger) {
+func (s *Server) getDecisionLogger(ctx context.Context, br bundleRevisions) (context.Context, decisionLogger) {
+	var logger decisionLogger
+	if intermediateResultsEnabled {
+		ctx = context.WithValue(ctx, IntermediateResultsContextKey{}, make(map[string]any))
+	}
+
 	// For backwards compatibility use `revision` as needed.
 	if s.hasLegacyBundle(br) {
 		logger.revision = br.LegacyRevision
@@ -2476,7 +2508,7 @@ func (s *Server) getDecisionLogger(br bundleRevisions) (logger decisionLogger) {
 		logger.revisions = br.Revisions
 	}
 	logger.logger = s.logger
-	return logger
+	return ctx, logger
 }
 
 func (*Server) getExplainResponse(explainMode types.ExplainModeV1, trace []*topdown.Event, pretty bool) (explanation types.TraceV1) {
@@ -2519,7 +2551,6 @@ func (s *Server) abortAuto(ctx context.Context, txn storage.Transaction, w http.
 }
 
 func (s *Server) loadModules(ctx context.Context, txn storage.Transaction) (map[string]*ast.Module, error) {
-
 	ids, err := s.store.ListPolicies(ctx, txn)
 	if err != nil {
 		return nil, err
@@ -2619,7 +2650,6 @@ func parseRefQuery(str string) (ast.Body, error) {
 }
 
 func (*Server) prepareV1PatchSlice(root string, ops []types.PatchV1) (result []patchImpl, err error) {
-
 	root = "/" + strings.Trim(root, "/")
 
 	for _, op := range ops {
@@ -2672,7 +2702,6 @@ func (s *Server) generateDecisionID() string {
 }
 
 func (s *Server) getProvenance(br bundleRevisions) *types.ProvenanceV1 {
-
 	p := &types.ProvenanceV1{
 		Version:   version.Version,
 		Vcs:       version.Vcs,
@@ -2702,7 +2731,7 @@ func (s *Server) hasLegacyBundle(br bundleRevisions) bool {
 
 func (s *Server) generateDefaultDecisionPath() string {
 	// Assume the path is safe to transition back to a url
-	p, _ := s.manager.Config.DefaultDecisionRef().Ptr()
+	p, _ := s.manager.GetConfig().DefaultDecisionRef().Ptr()
 	return p
 }
 
@@ -2742,8 +2771,7 @@ func stringPathToRef(s string) (ast.Ref, error) {
 		return r, nil
 	}
 
-	p := strings.Split(s, "/")
-	for _, x := range p {
+	for x := range strings.SplitSeq(s, "/") {
 		if x == "" {
 			continue
 		}
@@ -2771,6 +2799,9 @@ func validateQuery(query string, opts ast.ParserOptions) (ast.Body, error) {
 }
 
 func getBoolParam(url *url.URL, name string, ifEmpty bool) bool {
+	if url.RawQuery == "" {
+		return false
+	}
 
 	p, ok := url.Query()[name]
 	if !ok {
@@ -2793,7 +2824,6 @@ func getBoolParam(url *url.URL, name string, ifEmpty bool) bool {
 }
 
 func getStringSliceParam(url *url.URL, name string) []string {
-
 	p, ok := url.Query()[name]
 	if !ok {
 		return nil
@@ -2808,8 +2838,12 @@ func getStringSliceParam(url *url.URL, name string) []string {
 	return p
 }
 
-func getExplain(p []string, zero types.ExplainModeV1) types.ExplainModeV1 {
-	for _, x := range p {
+func getExplain(url *url.URL, zero types.ExplainModeV1) types.ExplainModeV1 {
+	if url.RawQuery == "" {
+		return zero
+	}
+
+	for _, x := range url.Query()[types.ParamExplainV1] {
 		switch x {
 		case string(types.ExplainNotesV1):
 			return types.ExplainNotesV1
@@ -2824,8 +2858,7 @@ func getExplain(p []string, zero types.ExplainModeV1) types.ExplainModeV1 {
 	return zero
 }
 
-func readInputV0(r *http.Request) (ast.Value, *interface{}, error) {
-
+func readInputV0(r *http.Request) (ast.Value, *any, error) {
 	parsed, ok := authorizer.GetBodyOnContext(r.Context())
 	if ok {
 		v, err := ast.InterfaceToValue(parsed)
@@ -2838,7 +2871,7 @@ func readInputV0(r *http.Request) (ast.Value, *interface{}, error) {
 		return nil, nil, fmt.Errorf("could not decompress the body: %w", err)
 	}
 
-	var x interface{}
+	var x any
 
 	if strings.Contains(r.Header.Get("Content-Type"), "yaml") {
 		if len(bodyBytes) > 0 {
@@ -2857,8 +2890,8 @@ func readInputV0(r *http.Request) (ast.Value, *interface{}, error) {
 	return v, &x, err
 }
 
-func readInputGetV1(str string) (ast.Value, *interface{}, error) {
-	var input interface{}
+func readInputGetV1(str string) (ast.Value, *any, error) {
+	var input any
 	if err := util.UnmarshalJSON([]byte(str), &input); err != nil {
 		return nil, nil, fmt.Errorf("parameter contains malformed input document: %w", err)
 	}
@@ -2866,11 +2899,10 @@ func readInputGetV1(str string) (ast.Value, *interface{}, error) {
 	return v, &input, err
 }
 
-func readInputPostV1(r *http.Request) (ast.Value, *interface{}, error) {
-
+func readInputPostV1(r *http.Request) (ast.Value, *any, error) {
 	parsed, ok := authorizer.GetBodyOnContext(r.Context())
 	if ok {
-		if obj, ok := parsed.(map[string]interface{}); ok {
+		if obj, ok := parsed.(map[string]any); ok {
 			if input, ok := obj["input"]; ok {
 				v, err := ast.InterfaceToValue(input)
 				return v, &input, err
@@ -2994,7 +3026,7 @@ function query() {
 		'method': 'POST',
 		'body': body,
 	}
-	fetch(new Request('/v1/query', opts))
+	fetch(new Request('v1/query', opts))
 		.then(resp => resp.json())
 		.then(json => {
 			str = JSON.stringify(json, null, 2);
@@ -3036,7 +3068,22 @@ type decisionLogger struct {
 	logger    func(context.Context, *Info) error
 }
 
-func (l decisionLogger) Log(ctx context.Context, txn storage.Transaction, path string, query string, goInput *interface{}, astInput ast.Value, goResults *interface{}, ndbCache builtins.NDBCache, err error, m metrics.Metrics) error {
+func (l decisionLogger) Log(
+	ctx context.Context,
+	txn storage.Transaction,
+	path string,
+	query string,
+	goInput *any,
+	astInput ast.Value,
+	goResults *any,
+	ndbCache builtins.NDBCache,
+	err error,
+	m metrics.Metrics,
+	custom map[string]any,
+) error {
+	if l.logger == nil {
+		return nil
+	}
 
 	bundles := map[string]BundleInfo{}
 	for name, rev := range l.revisions {
@@ -3072,6 +3119,7 @@ func (l decisionLogger) Log(ctx context.Context, txn storage.Transaction, path s
 		Error:              err,
 		Metrics:            m,
 		RequestID:          rctx.ReqID,
+		Custom:             custom,
 	}
 
 	if ndbCache != nil {
@@ -3088,6 +3136,12 @@ func (l decisionLogger) Log(ctx context.Context, txn storage.Transaction, path s
 		info.SpanID = sctx.SpanID().String()
 	}
 
+	if intermediateResultsEnabled {
+		if iresults, ok := ctx.Value(IntermediateResultsContextKey{}).(map[string]any); ok {
+			info.IntermediateResults = iresults
+		}
+	}
+
 	if l.logger != nil {
 		if err := l.logger(ctx, info); err != nil {
 			return fmt.Errorf("decision_logs: %w", err)
@@ -3100,7 +3154,7 @@ func (l decisionLogger) Log(ctx context.Context, txn storage.Transaction, path s
 type patchImpl struct {
 	path  storage.Path
 	op    storage.PatchOp
-	value interface{}
+	value any
 }
 
 func parseURL(s string, useHTTPSByDefault bool) (*url.URL, error) {
@@ -3115,11 +3169,9 @@ func parseURL(s string, useHTTPSByDefault bool) (*url.URL, error) {
 }
 
 func annotateSpan(ctx context.Context, decisionID string) {
-	if decisionID == "" {
-		return
+	if decisionID != "" {
+		trace.SpanFromContext(ctx).SetAttributes(attribute.String(otelDecisionIDAttr, decisionID))
 	}
-	trace.SpanFromContext(ctx).
-		SetAttributes(attribute.String(otelDecisionIDAttr, decisionID))
 }
 
 func pretty(r *http.Request) bool {

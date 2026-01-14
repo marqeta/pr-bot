@@ -9,6 +9,8 @@
 package safehtml
 
 import (
+	"bytes"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -16,14 +18,25 @@ import (
 
 // SanitizeCSS attempts to sanitize CSS properties.
 func SanitizeCSS(property, value string) (string, string) {
-	if !identifierPattern.MatchString(property) {
+	property = SanitizeCSSProperty(property)
+	if property == InnocuousPropertyName {
 		return InnocuousPropertyName, InnocuousPropertyValue
 	}
-	property = strings.ToLower(property)
+	return property, SanitizeCSSValue(property, value)
+}
+
+func SanitizeCSSValue(property, value string) string {
 	if sanitizer, ok := cssPropertyNameToValueSanitizer[property]; ok {
-		return property, sanitizer(value)
+		return sanitizer(value)
 	}
-	return property, sanitizeRegular(value)
+	return sanitizeRegular(value)
+}
+
+func SanitizeCSSProperty(property string) string {
+	if !identifierPattern.MatchString(property) {
+		return InnocuousPropertyName
+	}
+	return strings.ToLower(property)
 }
 
 // identifierPattern matches a subset of valid <ident-token> values defined in
@@ -51,17 +64,35 @@ var cssPropertyNameToValueSanitizer = map[string]func(string) string{
 	"z-index":             sanitizeRegular,
 }
 
+var validURLPrefixes = []string{
+	`url("`,
+	`url('`,
+	`url(`,
+}
+
+var validURLSuffixes = []string{
+	`")`,
+	`')`,
+	`)`,
+}
+
 func sanitizeBackgroundImage(v string) string {
+	// Check for <> as per https://github.com/google/safehtml/blob/be23134998433fcf0135dda53593fc8f8bf4df7c/style.go#L87C2-L89C3
+	if strings.ContainsAny(v, "<>") {
+		return InnocuousPropertyValue
+	}
 	for _, u := range strings.Split(v, ",") {
 		u = strings.TrimSpace(u)
-		if !strings.HasPrefix(u, `url("`) {
-			return InnocuousPropertyValue
+		var found bool
+		for i, prefix := range validURLPrefixes {
+			if strings.HasPrefix(u, prefix) && strings.HasSuffix(u, validURLSuffixes[i]) {
+				found = true
+				u = strings.TrimPrefix(u, validURLPrefixes[i])
+				u = strings.TrimSuffix(u, validURLSuffixes[i])
+				break
+			}
 		}
-		if !strings.HasSuffix(u, `")`) {
-			return InnocuousPropertyValue
-		}
-		u := u[5 : len(u)-2]
-		if !urlIsSafe(u) {
+		if !found || !urlIsSafe(u) {
 			return InnocuousPropertyValue
 		}
 	}
@@ -137,3 +168,32 @@ var safeRegularPropertyValuePattern = regexp.MustCompile(`^(?:[*/]?(?:[0-9a-zA-Z
 // safeEnumPropertyValuePattern matches strings that are safe to use as enumerated property values.
 // Specifically, it matches strings that contain only alphabetic and '-' runes.
 var safeEnumPropertyValuePattern = regexp.MustCompile(`^[a-zA-Z-]*$`)
+
+// SanitizeStyleValue escapes s so that it is safe to put between "" to form a CSS <string-token>.
+// See syntax at https://www.w3.org/TR/css-syntax-3/#string-token-diagram.
+//
+// On top of the escape sequences required in <string-token>, this function also escapes
+// control runes to minimize the risk of these runes triggering browser-specific bugs.
+// Taken from cssEscapeString in safehtml package.
+func SanitizeStyleValue(s string) string {
+	var b bytes.Buffer
+	b.Grow(len(s))
+	for _, c := range s {
+		switch {
+		case c == '\u0000':
+			// Replace the NULL byte according to https://www.w3.org/TR/css-syntax-3/#input-preprocessing.
+			// We take this extra precaution in case the user agent fails to handle NULL properly.
+			b.WriteString("\uFFFD")
+		case c == '<', // Prevents breaking out of a style element with `</style>`. Escape this in case the Style user forgets to.
+			c == '"', c == '\\', // Must be CSS-escaped in <string-token>. U+000A line feed is handled in the next case.
+			c <= '\u001F', c == '\u007F', // C0 control codes
+			c >= '\u0080' && c <= '\u009F', // C1 control codes
+			c == '\u2028', c == '\u2029':   // Unicode newline characters
+			// See CSS escape sequence syntax at https://www.w3.org/TR/css-syntax-3/#escape-diagram.
+			fmt.Fprintf(&b, "\\%06X", c)
+		default:
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}
