@@ -32,11 +32,12 @@ import (
 type SendHeartbeatOption func(*sendHeartbeatOptions)
 
 type sendHeartbeatOptions struct {
-	lockItem    *Lock
-	data        []byte
-	deleteData  bool
-	retries     int
-	retriesWait time.Duration
+	lockItem       *Lock
+	data           []byte
+	deleteData     bool
+	retries        int
+	retriesWait    time.Duration
+	matchOwnerOnly bool
 }
 
 // DeleteData removes the Lock data on heartbeat.
@@ -59,6 +60,15 @@ func HeartbeatRetries(retries int, wait time.Duration) SendHeartbeatOption {
 	return func(o *sendHeartbeatOptions) {
 		o.retries = retries
 		o.retriesWait = wait
+	}
+}
+
+// UnsafeMatchOwnerOnly helps dealing with network transient errors by relying
+// by expanding the heartbeat scope to include the lock owner. If lock owner is
+// globally unique, then this feature is safe to use.
+func UnsafeMatchOwnerOnly() SendHeartbeatOption {
+	return func(o *sendHeartbeatOptions) {
+		o.matchOwnerOnly = true
 	}
 }
 
@@ -95,7 +105,9 @@ func (c *Client) SendHeartbeatWithContext(ctx context.Context, lockItem *Lock, o
 	}
 	targetRVN := c.generateRecordVersionNumber()
 	err := c.sendHeartbeat(ctx, sho, currentRVN, targetRVN)
-	if err != nil {
+	if errors.Is(err, ctx.Err()) {
+		return ctx.Err()
+	} else if err != nil {
 		err = c.retryHeartbeat(ctx, err, sho, currentRVN, targetRVN)
 		err = parseDynamoDBError(err, "already acquired lock, stopping heartbeats")
 		if errors.As(err, new(*LockNotGrantedError)) {
@@ -115,7 +127,7 @@ func (c *Client) sendHeartbeat(ctx context.Context, options *sendHeartbeatOption
 		return &LockNotGrantedError{msg: "cannot send heartbeat because lock is not granted"}
 	}
 
-	cond := ownershipLockCondition(c.partitionKeyName, currentRecordVersionNumber, lockItem.ownerName)
+	cond := unsafeOwnershipLockCondition(c.partitionKeyName, currentRecordVersionNumber, lockItem.ownerName, options.matchOwnerOnly)
 	update := expression.
 		Set(leaseDurationAttr, expression.Value(leaseDuration.String())).
 		Set(rvnAttr, expression.Value(targetRecordVersionNumber))

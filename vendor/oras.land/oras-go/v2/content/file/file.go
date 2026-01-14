@@ -104,6 +104,13 @@ type Store struct {
 	// manifest and config file, while leaving only named layer files.
 	// Default value: false.
 	IgnoreNoName bool
+	// SkipUnpack controls if push operations should skip unpacking files. This
+	// value overrides the [AnnotationUnpack].
+	// Default value: false.
+	SkipUnpack bool
+	// PreservePermissions controls whether to preserve file permissions when unpacking,
+	// disregarding the active umask, similar to tar's `--preserve-permissions`
+	PreservePermissions bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -265,7 +272,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 		return fmt.Errorf("failed to resolve path for writing: %w", err)
 	}
 
-	if needUnpack := expected.Annotations[AnnotationUnpack]; needUnpack == "true" {
+	if needUnpack := expected.Annotations[AnnotationUnpack]; needUnpack == "true" && !s.SkipUnpack {
 		err = s.pushDir(name, target, expected, content)
 	} else {
 		err = s.pushFile(target, expected, content)
@@ -279,7 +286,8 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 	return nil
 }
 
-// restoreDuplicates restores successor files with same content but different names.
+// restoreDuplicates restores successor files with same content but different
+// names.
 // See Store.ForceCAS for more info.
 func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) error {
 	successors, err := content.Successors(ctx, s, desc)
@@ -306,8 +314,16 @@ func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) 
 				return fmt.Errorf("%q: %s: %w", name, desc.MediaType, err)
 			}
 			return nil
-		}(); err != nil && !errors.Is(err, errdef.ErrNotFound) {
-			return err
+		}(); err != nil {
+			switch {
+			case errors.Is(err, errdef.ErrNotFound):
+				// allow pushing manifests before blobs
+			case errors.Is(err, ErrDuplicateName):
+				// in case multiple goroutines are pushing or restoring the same
+				// named content, the error is ignored
+			default:
+				return err
+			}
 		}
 	}
 	return nil
@@ -381,8 +397,9 @@ func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]oc
 	return s.graph.Predecessors(ctx, node)
 }
 
-// Add adds a file into the file store.
-func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
+// Add adds a file or a directory into the file store.
+// Hard links within the directory are treated as regular files.
+func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
 	if s.isClosedSet() {
 		return ocispec.Descriptor{}, ErrStoreClosed
 	}
@@ -413,7 +430,7 @@ func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.De
 	// generate descriptor
 	var desc ocispec.Descriptor
 	if fi.IsDir() {
-		desc, err = s.descriptorFromDir(name, mediaType, path)
+		desc, err = s.descriptorFromDir(ctx, name, mediaType, path)
 	} else {
 		desc, err = s.descriptorFromFile(fi, mediaType, path)
 	}
@@ -485,14 +502,14 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 	checksum := expected.Annotations[AnnotationDigest]
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := extractTarGzip(target, name, gzPath, checksum, *buf); err != nil {
+	if err := extractTarGzip(target, name, gzPath, checksum, *buf, s.PreservePermissions); err != nil {
 		return fmt.Errorf("failed to extract tar to %s: %w", target, err)
 	}
 	return nil
 }
 
 // descriptorFromDir generates descriptor from the given directory.
-func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Descriptor, err error) {
+func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir string) (desc ocispec.Descriptor, err error) {
 	// make a temp file to store the gzip
 	gz, err := s.tempFile()
 	if err != nil {
@@ -519,7 +536,7 @@ func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Des
 	tw := io.MultiWriter(gzw, tarDigester.Hash())
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := tarDirectory(dir, name, tw, s.TarReproducible, *buf); err != nil {
+	if err := tarDirectory(ctx, dir, name, tw, s.TarReproducible, *buf); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to tar %s: %w", dir, err)
 	}
 

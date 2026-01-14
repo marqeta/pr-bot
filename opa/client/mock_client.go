@@ -5,7 +5,7 @@ package client
 import (
 	context "context"
 
-	sdk "github.com/open-policy-agent/opa/sdk"
+	sdk "github.com/open-policy-agent/opa/v1/sdk"
 	mock "github.com/stretchr/testify/mock"
 )
 

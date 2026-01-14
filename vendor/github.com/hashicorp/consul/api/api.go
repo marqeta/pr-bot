@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -117,6 +118,13 @@ type QueryOptions struct {
 	// Note: Partitions are available only in Consul Enterprise
 	Partition string
 
+	// SamenessGroup is used find the SamenessGroup in the given
+	// Partition and will find the failover order for the Service
+	// from the SamenessGroup Members, with the given Partition being
+	// the first member.
+	// Note: SamenessGroups are available only in Consul Enterprise
+	SamenessGroup string
+
 	// Providing a datacenter overwrites the DC provided
 	// by the Config
 	Datacenter string
@@ -134,7 +142,7 @@ type QueryOptions struct {
 	RequireConsistent bool
 
 	// UseCache requests that the agent cache results locally. See
-	// https://www.consul.io/api/features/caching.html for more details on the
+	// https://developer.hashicorp.com/api/features/caching.html for more details on the
 	// semantics.
 	UseCache bool
 
@@ -144,14 +152,14 @@ type QueryOptions struct {
 	// returned. Clients that wish to allow for stale results on error can set
 	// StaleIfError to a longer duration to change this behavior. It is ignored
 	// if the endpoint supports background refresh caching. See
-	// https://www.consul.io/api/features/caching.html for more details.
+	// https://developer.hashicorp.com/api/features/caching.html for more details.
 	MaxAge time.Duration
 
 	// StaleIfError specifies how stale the client will accept a cached response
 	// if the servers are unavailable to fetch a fresh one. Only makes sense when
 	// UseCache is true and MaxAge is set to a lower, non-zero value. It is
 	// ignored if the endpoint supports background refresh caching. See
-	// https://www.consul.io/api/features/caching.html for more details.
+	// https://developer.hashicorp.com/api/features/caching.html for more details.
 	StaleIfError time.Duration
 
 	// WaitIndex is used to enable a blocking query. Waits
@@ -324,6 +332,9 @@ type QueryMeta struct {
 type WriteMeta struct {
 	// How long did the request take
 	RequestTime time.Duration
+
+	// Warnings contains any warning messages from the server
+	Warnings []string
 }
 
 // HttpBasicAuth is used to authenticate http client with HTTP Basic Authentication
@@ -460,7 +471,7 @@ func defaultConfig(logger hclog.Logger, transportFn func() *http.Transport) *Con
 	}
 
 	config := &Config{
-		Address:   "127.0.0.1:8500",
+		Address:   "localhost:8500",
 		Scheme:    "http",
 		Transport: transportFn(),
 	}
@@ -638,9 +649,7 @@ func (c *Client) Headers() http.Header {
 
 	ret := make(http.Header)
 	for k, v := range c.headers {
-		for _, val := range v {
-			ret[k] = append(ret[k], val)
-		}
+		ret[k] = append(ret[k], v...)
 	}
 
 	return ret
@@ -847,6 +856,12 @@ func (r *request) setQueryOptions(q *QueryOptions) {
 		// rather than the alternative short-hand "ap"
 		r.params.Set("partition", q.Partition)
 	}
+	if q.SamenessGroup != "" {
+		// For backwards-compatibility with existing tests,
+		// use the long-hand query param name "sameness-group"
+		// rather than the alternative short-hand "sg"
+		r.params.Set("sameness-group", q.SamenessGroup)
+	}
 	if q.Datacenter != "" {
 		// For backwards-compatibility with existing tests,
 		// use the short-hand query param name "dc"
@@ -1019,12 +1034,11 @@ func (r *request) toHTTP() (*http.Request, error) {
 	req.Header = r.header
 
 	// Content-Type must always be set when a body is present
-	// See https://github.com/hashicorp/consul/issues/10011
 	if req.Body != nil && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	}
 
-	// Setup auth
+	// Check for a token
 	if r.config.HttpAuth != nil {
 		req.SetBasicAuth(r.config.HttpAuth.Username, r.config.HttpAuth.Password)
 	}
@@ -1073,8 +1087,23 @@ func (c *Client) doRequest(r *request) (time.Duration, *http.Response, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+
+	contentType := GetContentType(req)
+
+	if req != nil {
+		req.Header.Set(contentTypeHeader, contentType)
+	}
+
 	start := time.Now()
 	resp, err := c.config.HttpClient.Do(req)
+
+	if resp != nil {
+		respContentType := resp.Header.Get(contentTypeHeader)
+		if respContentType == "" || respContentType != contentType {
+			resp.Header.Set(contentTypeHeader, contentType)
+		}
+	}
+
 	diff := time.Since(start)
 	return diff, resp, err
 }
@@ -1119,6 +1148,12 @@ func (c *Client) write(endpoint string, in, out interface{}, q *WriteOptions) (*
 	}
 
 	wm := &WriteMeta{RequestTime: rtt}
+
+	// Check for warning headers
+	if warning := resp.Header.Get("X-Consul-KV-Warning"); warning != "" {
+		wm.Warnings = append(wm.Warnings, warning)
+	}
+
 	if out != nil {
 		if err := decodeBody(resp, &out); err != nil {
 			return nil, err
@@ -1126,6 +1161,29 @@ func (c *Client) write(endpoint string, in, out interface{}, q *WriteOptions) (*
 	} else if _, err := io.ReadAll(resp.Body); err != nil {
 		return nil, err
 	}
+	return wm, nil
+}
+
+// delete is used to do a DELETE request against an endpoint
+func (c *Client) delete(endpoint string, q *QueryOptions) (*WriteMeta, error) {
+	r := c.newRequest("DELETE", endpoint)
+	r.setQueryOptions(q)
+	rtt, resp, err := c.doRequest(r)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResponseBody(resp)
+	if err = requireHttpCodes(resp, 204, 200); err != nil {
+		return nil, err
+	}
+
+	wm := &WriteMeta{RequestTime: rtt}
+
+	// Check for warning headers
+	if warning := resp.Header.Get("X-Consul-KV-Warning"); warning != "" {
+		wm.Warnings = append(wm.Warnings, warning)
+	}
+
 	return wm, nil
 }
 
@@ -1150,6 +1208,9 @@ func parseQueryMeta(resp *http.Response, q *QueryMeta) error {
 	last, err := strconv.ParseUint(header.Get("X-Consul-LastContact"), 10, 64)
 	if err != nil {
 		return fmt.Errorf("Failed to parse X-Consul-LastContact: %v", err)
+	}
+	if last > math.MaxInt64 {
+		return fmt.Errorf("X-Consul-LastContact Header value is out of range: %d", last)
 	}
 	q.LastContact = time.Duration(last) * time.Millisecond
 
@@ -1191,6 +1252,9 @@ func parseQueryMeta(resp *http.Response, q *QueryMeta) error {
 		age, err := strconv.ParseUint(ageStr, 10, 64)
 		if err != nil {
 			return fmt.Errorf("Failed to parse Age Header: %v", err)
+		}
+		if age > math.MaxInt64 {
+			return fmt.Errorf("Age Header value is out of range: %d", last)
 		}
 		q.CacheAge = time.Duration(age) * time.Second
 	}
@@ -1261,7 +1325,7 @@ func generateUnexpectedResponseCodeError(resp *http.Response) error {
 	io.Copy(&buf, resp.Body)
 	closeResponseBody(resp)
 
-	trimmed := strings.TrimSpace(string(buf.Bytes()))
+	trimmed := strings.TrimSpace(buf.String())
 	return StatusError{Code: resp.StatusCode, Body: trimmed}
 }
 

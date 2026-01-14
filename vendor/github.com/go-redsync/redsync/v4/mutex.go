@@ -26,11 +26,12 @@ type Mutex struct {
 
 	quorum int
 
-	genValueFunc func() (string, error)
-	value        string
-	until        time.Time
-	shuffle      bool
-	failFast     bool
+	genValueFunc  func() (string, error)
+	value         string
+	until         time.Time
+	shuffle       bool
+	failFast      bool
+	setNXOnExtend bool
 
 	pools []redis.Pool
 }
@@ -82,7 +83,7 @@ func (m *Mutex) lockContext(ctx context.Context, tries int) error {
 	}
 
 	var timer *time.Timer
-	for i := 0; i < tries; i++ {
+	for i := range tries {
 		if i != 0 {
 			if timer == nil {
 				timer = time.NewTimer(m.delayFunc(i))
@@ -117,14 +118,14 @@ func (m *Mutex) lockContext(ctx context.Context, tries int) error {
 			m.until = until
 			return nil
 		}
-		func() (int, error) {
+		_, _ = func() (int, error) {
 			ctx, cancel := context.WithTimeout(ctx, time.Duration(int64(float64(m.expiry)*m.timeoutFactor)))
 			defer cancel()
 			return m.actOnPoolsAsync(func(pool redis.Pool) (bool, error) {
 				return m.release(ctx, pool, value)
 			})
 		}()
-		if i == m.tries-1 && err != nil {
+		if i == tries-1 && err != nil {
 			return err
 		}
 	}
@@ -230,14 +231,6 @@ func (m *Mutex) acquire(ctx context.Context, pool redis.Pool, value string) (boo
 	return reply, nil
 }
 
-var deleteScript = redis.NewScript(1, `
-	if redis.call("GET", KEYS[1]) == ARGV[1] then
-		return redis.call("DEL", KEYS[1])
-	else
-		return 0
-	end
-`)
-
 func (m *Mutex) release(ctx context.Context, pool redis.Pool, value string) (bool, error) {
 	conn, err := pool.Get(ctx)
 	if err != nil {
@@ -248,16 +241,11 @@ func (m *Mutex) release(ctx context.Context, pool redis.Pool, value string) (boo
 	if err != nil {
 		return false, err
 	}
+	if status == int64(-1) {
+		return false, ErrLockAlreadyExpired
+	}
 	return status != int64(0), nil
 }
-
-var touchScript = redis.NewScript(1, `
-	if redis.call("GET", KEYS[1]) == ARGV[1] then
-		return redis.call("PEXPIRE", KEYS[1], ARGV[2])
-	else
-		return 0
-	end
-`)
 
 func (m *Mutex) touch(ctx context.Context, pool redis.Pool, value string, expiry int) (bool, error) {
 	conn, err := pool.Get(ctx)
@@ -265,6 +253,12 @@ func (m *Mutex) touch(ctx context.Context, pool redis.Pool, value string, expiry
 		return false, err
 	}
 	defer conn.Close()
+
+	touchScript := touchScript
+	if m.setNXOnExtend {
+		touchScript = touchWithSetNXScript
+	}
+
 	status, err := conn.Eval(touchScript, m.name, value, expiry)
 	if err != nil {
 		return false, err
@@ -298,6 +292,8 @@ func (m *Mutex) actOnPoolsAsync(actFn func(redis.Pool) (bool, error)) (int, erro
 		r := <-ch
 		if r.statusOK {
 			n++
+		} else if r.err == ErrLockAlreadyExpired {
+			err = multierror.Append(err, ErrLockAlreadyExpired)
 		} else if r.err != nil {
 			err = multierror.Append(err, &RedisError{Node: r.node, Err: r.err})
 		} else {
@@ -306,7 +302,7 @@ func (m *Mutex) actOnPoolsAsync(actFn func(redis.Pool) (bool, error)) (int, erro
 		}
 
 		if m.failFast {
-			// fast retrun
+			// fast return
 			if n >= m.quorum {
 				return n, err
 			}

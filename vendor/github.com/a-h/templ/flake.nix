@@ -2,18 +2,19 @@
   description = "templ";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs?ref=nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     gitignore = {
       url = "github:hercules-ci/gitignore.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    xc = {
-      url = "github:joerdav/xc";
+    version = {
+      url = "github:a-h/version/0.0.10";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, gitignore, xc }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, gitignore, version }:
     let
       allSystems = [
         "x86_64-linux" # 64-bit Intel/AMD Linux
@@ -23,49 +24,62 @@
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
         inherit system;
-        pkgs = import nixpkgs { inherit system; };
+        pkgs =
+          let
+            pkgs-unstable = import nixpkgs-unstable { inherit system; };
+          in
+          import nixpkgs {
+            inherit system;
+            overlays = [
+              (final: prev: {
+                gopls = pkgs-unstable.gopls;
+                version = version.packages.${system}.default; # Used to apply version numbers to the repo.
+              })
+            ];
+          };
       });
     in
     {
-      packages = forAllSystems ({ pkgs, ... }: rec {
-        default = templ;
+      packages = forAllSystems ({ pkgs, ... }:
+        rec {
+          default = templ;
 
-        templ = pkgs.buildGo121Module {
-          name = "templ";
-          src = gitignore.lib.gitignoreSource ./.;
-          subPackages = [ "cmd/templ" ];
-          vendorHash = "sha256-4tHofTnSNI/MBmrGdGsLNoXjxUC0+Gwp3PzzUwfUkQU=";
-          CGO_ENABLED = 0;
-          flags = [
-            "-trimpath"
-          ];
-          ldflags = [
-            "-s"
-            "-w"
-            "-extldflags -static"
-          ];
-        };
-
-        templ-docs = pkgs.buildNpmPackage {
-          name = "templ-docs";
-          src = gitignore.lib.gitignoreSource ./docs;
-          npmDepsHash = "sha256-i6clvSyHtQEGl2C/wcCXonl1W/Kxq7WPTYH46AhUvDM=";
-          installPhase = ''
-            mkdir -p $out/share
-            cp -r build/ $out/share/docs
-          '';
-        };
-      });
+          templ = pkgs.buildGo124Module {
+            name = "templ";
+            subPackages = [ "cmd/templ" ];
+            src = gitignore.lib.gitignoreSource ./.;
+            vendorHash = "sha256-pVZjZCXT/xhBCMyZdR7kEmB9jqhTwRISFp63bQf6w5A=";
+            env = {
+              CGO_ENABLED = 0;
+            };
+            flags = [
+              "-trimpath"
+            ];
+            ldflags = [
+              "-s"
+              "-w"
+              "-extldflags -static"
+            ];
+          };
+        });
 
       # `nix develop` provides a shell containing development tools.
-      devShell = forAllSystems ({ system, pkgs }:
+      devShell = forAllSystems ({ pkgs, ... }:
         pkgs.mkShell {
-          buildInputs = with pkgs; [
-            (golangci-lint.override { buildGoModule = buildGo121Module; })
-            go_1_21
-            goreleaser
-            nodejs
-            xc.packages.${system}.xc
+          buildInputs = [
+            pkgs.golangci-lint
+            pkgs.cosign # Used to sign container images.
+            pkgs.esbuild # Used to package JS examples.
+            pkgs.go
+            pkgs.gopls
+            pkgs.goreleaser
+            pkgs.gotestsum
+            pkgs.govulncheck
+            pkgs.ko # Used to build Docker images.
+            pkgs.nodejs # Used to build templ-docs.
+            pkgs.nodePackages.prettier # Used for formatting JS and CSS.
+            pkgs.version
+            pkgs.xc
           ];
         });
 

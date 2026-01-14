@@ -12,24 +12,23 @@ import (
 // DynamoDBTableProperties are supplied to DynamoDB limiter backends.
 // This struct informs the backend what the name of the table is and what the names of the key fields are.
 type DynamoDBTableProperties struct {
-	//TableName is the name of the table.
+	// TableName is the name of the table.
 	TableName string
-	//PartitionKeyName is the name of the PartitionKey attribute.
+	// PartitionKeyName is the name of the PartitionKey attribute.
 	PartitionKeyName string
-	//SortKeyName is the name of the SortKey attribute.
+	// SortKeyName is the name of the SortKey attribute.
 	SortKeyName string
-	//SortKeyUsed indicates if a SortKey is present on the table.
+	// SortKeyUsed indicates if a SortKey is present on the table.
 	SortKeyUsed bool
-	//TTLFieldName is the name of the attribute configured for TTL.
+	// TTLFieldName is the name of the attribute configured for TTL.
 	TTLFieldName string
 }
 
-// LoadDynamoDBTableProperties fetches a table description with the supplied client and returns a DynamoDBTableProperties struct
+// LoadDynamoDBTableProperties fetches a table description with the supplied client and returns a DynamoDBTableProperties struct.
 func LoadDynamoDBTableProperties(ctx context.Context, client *dynamodb.Client, tableName string) (DynamoDBTableProperties, error) {
 	resp, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: &tableName,
 	})
-
 	if err != nil {
 		return DynamoDBTableProperties{}, errors.Wrap(err, "describe dynamodb table failed")
 	}
@@ -66,6 +65,7 @@ func loadTableKeys(data DynamoDBTableProperties, table *types.TableDescription) 
 	for _, key := range table.KeySchema {
 		if key.KeyType == types.KeyTypeHash {
 			data.PartitionKeyName = *key.AttributeName
+
 			continue
 		}
 
@@ -75,7 +75,7 @@ func loadTableKeys(data DynamoDBTableProperties, table *types.TableDescription) 
 
 	for _, attribute := range table.AttributeDefinitions {
 		name := *attribute.AttributeName
-		if !(name == data.PartitionKeyName || name == data.SortKeyName) {
+		if name != data.PartitionKeyName && name != data.SortKeyName {
 			continue
 		}
 
@@ -116,12 +116,16 @@ func dynamoDBputItem(ctx context.Context, client *dynamodb.Client, input *dynamo
 func dynamoDBGetItem(ctx context.Context, client *dynamodb.Client, input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
 	input.ConsistentRead = aws.Bool(true)
 
-	var resp *dynamodb.GetItemOutput
-	var err error
+	var (
+		resp *dynamodb.GetItemOutput
+		err  error
+	)
 
 	done := make(chan struct{})
+
 	go func() {
 		defer close(done)
+
 		resp, err = client.GetItem(ctx, input)
 	}()
 

@@ -2,6 +2,7 @@ package redsync
 
 import (
 	"math/rand"
+	"slices"
 	"time"
 
 	"github.com/go-redsync/redsync/v4/redis"
@@ -43,6 +44,8 @@ func (r *Redsync) NewMutex(name string, options ...Option) *Mutex {
 		o.Apply(m)
 	}
 	if m.shuffle {
+		// Create a copy to avoid data races between concurrent locks.
+		m.pools = slices.Clone(m.pools)
 		randomPools(m.pools)
 	}
 	return m
@@ -84,6 +87,16 @@ func WithRetryDelay(delay time.Duration) Option {
 		m.delayFunc = func(tries int) time.Duration {
 			return delay
 		}
+	})
+}
+
+// WithSetNXOnExtend improves extending logic to extend the key if exist
+// and if not, tries to set a new key in redis
+// Useful if your redises restart often and you want to reduce the chances of losing the lock
+// Read this MR for more info: https://github.com/go-redsync/redsync/pull/149
+func WithSetNXOnExtend() Option {
+	return OptionFunc(func(m *Mutex) {
+		m.setNXOnExtend = true
 	})
 }
 

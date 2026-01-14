@@ -195,6 +195,9 @@ type TerminatingGatewayConfigEntry struct {
 type LinkedService struct {
 	// Referencing other partitions is not supported.
 
+	//DisableAutoHostRewrite disables terminating gateways auto host rewrite feature when set to true.
+	DisableAutoHostRewrite bool `json:",omitempty"`
+
 	// Namespace is where the service is registered.
 	Namespace string `json:",omitempty"`
 
@@ -288,6 +291,10 @@ type APIGatewayListener struct {
 	Override *APIGatewayPolicy `json:",omitempty"`
 	// Default is the policy that is the default for the listener and route, routes can override this behavior
 	Default *APIGatewayPolicy `json:",omitempty"`
+
+	// MaxRequestHeadersKB configures the maximum size in kilobytes for request headers
+	// sent from downstream clients to upstream services. If not set, uses Envoy's default.
+	MaxRequestHeadersKB *uint32 `json:",omitempty"`
 }
 
 // APIGatewayTLSConfiguration specifies the configuration of a listener’s
