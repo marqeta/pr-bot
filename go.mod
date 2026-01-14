@@ -144,4 +144,5 @@ replace (
 	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v4 v4.0.5
 	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
 	github.com/go-viper/mapstructure/v2 => github.com/go-viper/mapstructure/v2 v2.4.0
+	go.temporal.io/server => go.temporal.io/server v1.29.2
 )
