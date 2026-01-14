@@ -74,6 +74,12 @@ type UpdateTimeToLiveInput struct {
 	noSmithyDocumentSerde
 }
 
+func (in *UpdateTimeToLiveInput) bindEndpointParams(p *EndpointParameters) {
+
+	p.ResourceArn = in.TableName
+
+}
+
 type UpdateTimeToLiveOutput struct {
 
 	// Represents the output of an UpdateTimeToLive operation.
@@ -152,6 +158,12 @@ func (c *Client) addOperationUpdateTimeToLiveMiddlewares(stack *middleware.Stack
 	if err = addUserAgentRetryMode(stack, options); err != nil {
 		return err
 	}
+	if err = addUserAgentAccountIDEndpointMode(stack, options); err != nil {
+		return err
+	}
+	if err = addCredentialSource(stack, options); err != nil {
+		return err
+	}
 	if err = addOpUpdateTimeToLiveValidationMiddleware(stack); err != nil {
 		return err
 	}
@@ -179,16 +191,13 @@ func (c *Client) addOperationUpdateTimeToLiveMiddlewares(stack *middleware.Stack
 	if err = addDisableHTTPSMiddleware(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanInitializeStart(stack); err != nil {
+	if err = addInterceptBeforeRetryLoop(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanInitializeEnd(stack); err != nil {
+	if err = addInterceptAttempt(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanBuildRequestStart(stack); err != nil {
-		return err
-	}
-	if err = addSpanBuildRequestEnd(stack); err != nil {
+	if err = addInterceptors(stack, options); err != nil {
 		return err
 	}
 	return nil
