@@ -144,5 +144,5 @@ replace (
 	github.com/containerd/containerd => github.com/containerd/containerd v1.7.30
 	github.com/go-jose/go-jose/v3 => github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
-	github.com/go-viper/mapstructure/v2 => github.com/go-viper/mapstructure/v2 v2.3.0
+	github.com/go-viper/mapstructure/v2 => github.com/go-viper/mapstructure/v2 v2.4.0
 )
