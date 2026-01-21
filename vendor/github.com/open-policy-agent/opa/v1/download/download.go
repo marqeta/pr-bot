@@ -8,11 +8,13 @@ package download
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,20 +50,20 @@ type Update struct {
 // updates from the remote HTTP endpoint that the client is configured to
 // connect to.
 type Downloader struct {
-	config             Config                        // downloader configuration for tuning polling and other downloader behaviour
-	client             rest.Client                   // HTTP client to use for bundle downloading
-	path               string                        // path to use in bundle download request
-	trigger            chan chan struct{}            // channel to signal downloads when manual triggering is enabled
-	stop               chan chan struct{}            // used to signal plugin to stop running
-	f                  func(context.Context, Update) // callback function invoked when download updates occur
-	etag               string                        // HTTP Etag for caching purposes
-	sizeLimitBytes     *int64                        // max bundle file size in bytes (passed to reader)
+	config             Config                              // downloader configuration for tuning polling and other downloader behaviour
+	client             rest.Client                         // HTTP client to use for bundle downloading
+	path               string                              // path to use in bundle download request
+	trigger            chan chan struct{}                  // channel to signal downloads when manual triggering is enabled
+	stop               chan chan struct{}                  // used to signal plugin to stop running
+	f                  func(context.Context, Update) error // callback function invoked when download updates occur
+	etag               string                              // HTTP Etag for caching purposes
+	sizeLimitBytes     *int64                              // max bundle file size in bytes (passed to reader)
 	bvc                *bundle.VerificationConfig
 	respHdrTimeoutSec  int64
 	wg                 sync.WaitGroup
 	logger             logging.Logger
-	mtx                sync.Mutex
 	stopped            bool
+	stopOnce           sync.Once
 	persist            bool
 	longPollingEnabled bool
 	lazyLoadingMode    bool
@@ -91,14 +93,14 @@ func New(config Config, client rest.Client, path string) *Downloader {
 }
 
 // WithCallback registers a function f to be called when download updates occur.
-func (d *Downloader) WithCallback(f func(context.Context, Update)) *Downloader {
+func (d *Downloader) WithCallback(f func(context.Context, Update) error) *Downloader {
 	d.f = f
 	return d
 }
 
 // WithLogAttrs sets an optional set of key/value pair attributes to include in
 // log messages emitted by the downloader.
-func (d *Downloader) WithLogAttrs(attrs map[string]interface{}) *Downloader {
+func (d *Downloader) WithLogAttrs(attrs map[string]any) *Downloader {
 	d.logger = d.logger.WithFields(attrs)
 	return d
 }
@@ -203,16 +205,11 @@ func (d *Downloader) Stop(context.Context) {
 		return
 	}
 
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-
-	if d.stopped {
-		return
-	}
-
-	done := make(chan struct{})
-	d.stop <- done
-	<-done
+	d.stopOnce.Do(func() {
+		done := make(chan struct{})
+		d.stop <- done
+		<-done
+	})
 }
 
 func (d *Downloader) loop(ctx context.Context) {
@@ -230,15 +227,20 @@ func (d *Downloader) loop(ctx context.Context) {
 			return
 		}
 
+		// Note: MaxDelaySeconds, MinDelaySeconds and LongPollingTimeoutSeconds
+		// are scaled from int seconds to ns in ValidateAndInjectDefaults.
 		if err != nil {
-			delay = util.DefaultBackoff(float64(minRetryDelay), float64(*d.config.Polling.MaxDelaySeconds), retry)
+			// when there was an error, use a delay that's based on the retry count
+			delay = util.DefaultBackoff(float64(minRetryDelay), float64(*d.config.Polling.parsedMaxDelaySeconds), retry)
 		} else if !d.longPollingEnabled || d.config.Polling.LongPollingTimeoutSeconds == nil {
 			// revert the response header timeout value on the http client's transport
 			if *d.client.Config().ResponseHeaderTimeoutSeconds == 0 {
 				d.client = d.client.SetResponseHeaderTimeout(&d.respHdrTimeoutSec)
 			}
-			min := float64(*d.config.Polling.MinDelaySeconds)
-			max := float64(*d.config.Polling.MaxDelaySeconds)
+
+			// when polling, use a jittered delay based on min and max delay config
+			min := float64(*d.config.Polling.parsedMinDelaySeconds)
+			max := float64(*d.config.Polling.parsedMaxDelaySeconds)
 			delay = time.Duration(((max - min) * rand.Float64()) + min)
 		}
 
@@ -262,12 +264,11 @@ func (d *Downloader) loop(ctx context.Context) {
 func (d *Downloader) oneShot(ctx context.Context) error {
 	m := metrics.New()
 	resp, err := d.download(ctx, m)
-
 	if err != nil {
 		d.etag = ""
 
 		if d.f != nil {
-			d.f(ctx, Update{ETag: "", Bundle: nil, Error: err, Metrics: m, Raw: nil})
+			err = errors.Join(err, d.f(ctx, Update{ETag: "", Bundle: nil, Error: err, Metrics: m, Raw: nil}))
 		}
 		return err
 	}
@@ -276,7 +277,9 @@ func (d *Downloader) oneShot(ctx context.Context) error {
 	d.longPollingEnabled = resp.longPoll
 
 	if d.f != nil {
-		d.f(ctx, Update{ETag: resp.etag, Bundle: resp.b, Error: nil, Metrics: m, Raw: resp.raw, Size: resp.size})
+		if err := d.f(ctx, Update{ETag: resp.etag, Bundle: resp.b, Error: nil, Metrics: m, Raw: resp.raw, Size: resp.size}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -361,9 +364,9 @@ func (d *Downloader) download(ctx context.Context, m metrics.Metrics) (*download
 					"application/octet-stream",
 					"application/vnd.openpolicyagent.bundles",
 				}
-
 				contentType := resp.Header.Get("content-type")
-				if !contains(contentType, expectedBundleContentType) {
+
+				if !slices.Contains(expectedBundleContentType, contentType) {
 					d.logger.Debug("Content-Type response header set to %v. Expected one of %v. "+
 						"Possibly not a bundle being downloaded.",
 						contentType,
@@ -440,13 +443,4 @@ type HTTPError struct {
 
 func (e HTTPError) Error() string {
 	return "server replied with " + http.StatusText(e.StatusCode)
-}
-
-func contains(s string, strings []string) bool {
-	for _, str := range strings {
-		if s == str {
-			return true
-		}
-	}
-	return false
 }

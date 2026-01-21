@@ -93,7 +93,7 @@ func (u *bindings) plugNamespaced(a *ast.Term, caller *bindings) *ast.Term {
 		}
 		cpy := *a
 		arr := make([]*ast.Term, v.Len())
-		for i := 0; i < len(arr); i++ {
+		for i := range arr {
 			arr[i] = u.plugNamespaced(v.Elem(i), caller)
 		}
 		cpy.Value = ast.NewArray(arr...)
@@ -119,7 +119,7 @@ func (u *bindings) plugNamespaced(a *ast.Term, caller *bindings) *ast.Term {
 	case ast.Ref:
 		cpy := *a
 		ref := make(ast.Ref, len(v))
-		for i := 0; i < len(ref); i++ {
+		for i := range ref {
 			ref[i] = u.plugNamespaced(v[i], caller)
 		}
 		cpy.Value = ref
@@ -185,7 +185,7 @@ func (u *bindings) namespaceVar(v *ast.Term, caller *bindings) *ast.Term {
 		// Root documents (i.e., data, input) should never be namespaced because they
 		// are globally unique.
 		if !ast.RootDocumentNames.Contains(v) {
-			return ast.NewTerm(ast.Var(string(name) + strconv.FormatUint(u.id, 10)))
+			return ast.VarTerm(string(name) + strconv.FormatUint(u.id, 10))
 		}
 	}
 	return v
@@ -212,20 +212,29 @@ type namespacingVisitor struct {
 	caller *bindings
 }
 
-func (vis namespacingVisitor) Visit(x interface{}) bool {
+func (vis namespacingVisitor) Visit(x any) bool {
 	switch x := x.(type) {
 	case *ast.ArrayComprehension:
 		x.Term = vis.namespaceTerm(x.Term)
-		ast.NewGenericVisitor(vis.Visit).Walk(x.Body)
+		vis := ast.NewGenericVisitor(vis.Visit)
+		for _, expr := range x.Body {
+			vis.Walk(expr)
+		}
 		return true
 	case *ast.SetComprehension:
 		x.Term = vis.namespaceTerm(x.Term)
-		ast.NewGenericVisitor(vis.Visit).Walk(x.Body)
+		vis := ast.NewGenericVisitor(vis.Visit)
+		for _, expr := range x.Body {
+			vis.Walk(expr)
+		}
 		return true
 	case *ast.ObjectComprehension:
 		x.Key = vis.namespaceTerm(x.Key)
 		x.Value = vis.namespaceTerm(x.Value)
-		ast.NewGenericVisitor(vis.Visit).Walk(x.Body)
+		vis := ast.NewGenericVisitor(vis.Visit)
+		for _, expr := range x.Body {
+			vis.Walk(expr)
+		}
 		return true
 	case *ast.Expr:
 		switch terms := x.Terms.(type) {
@@ -254,7 +263,7 @@ func (vis namespacingVisitor) namespaceTerm(a *ast.Term) *ast.Term {
 		}
 		cpy := *a
 		arr := make([]*ast.Term, v.Len())
-		for i := 0; i < len(arr); i++ {
+		for i := range arr {
 			arr[i] = vis.namespaceTerm(v.Elem(i))
 		}
 		cpy.Value = ast.NewArray(arr...)
@@ -280,7 +289,7 @@ func (vis namespacingVisitor) namespaceTerm(a *ast.Term) *ast.Term {
 	case ast.Ref:
 		cpy := *a
 		ref := make(ast.Ref, len(v))
-		for i := 0; i < len(ref); i++ {
+		for i := range ref {
 			ref[i] = vis.namespaceTerm(v[i])
 		}
 		cpy.Value = ref

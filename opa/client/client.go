@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/open-policy-agent/opa/sdk"
+	"github.com/open-policy-agent/opa/v1/sdk"
 )
 
 //go:generate mockery --name Client

@@ -10,7 +10,7 @@ import (
 	"github.com/marqeta/pr-bot/opa/input"
 	"github.com/marqeta/pr-bot/opa/rules"
 	"github.com/marqeta/pr-bot/opa/types"
-	"github.com/open-policy-agent/opa/sdk"
+	"github.com/open-policy-agent/opa/v1/sdk"
 )
 
 func TestReview_Evaluate(t *testing.T) {

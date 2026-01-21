@@ -10,7 +10,7 @@ import (
 )
 
 // TypeName returns a human readable name for the AST element type.
-func TypeName(x interface{}) string {
+func TypeName(x any) string {
 	if _, ok := x.(*lazyObj); ok {
 		return "object"
 	}
@@ -48,6 +48,8 @@ func ValueName(x Value) string {
 		return "objectcomprehension"
 	case *SetComprehension:
 		return "setcomprehension"
+	case *TemplateString:
+		return "templatestring"
 	}
 
 	return TypeName(x)

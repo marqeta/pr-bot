@@ -18,15 +18,15 @@ import (
 
 // Cache defines the built-in cache used by the top-down evaluation. The keys
 // must be comparable and should not be of type string.
-type Cache map[interface{}]interface{}
+type Cache map[any]any
 
 // Put updates the cache for the named built-in.
-func (c Cache) Put(k, v interface{}) {
+func (c Cache) Put(k, v any) {
 	c[k] = v
 }
 
 // Get returns the cached value for k.
-func (c Cache) Get(k interface{}) (interface{}, bool) {
+func (c Cache) Get(k any) (any, bool) {
 	v, ok := c[k]
 	return v, ok
 }
@@ -39,7 +39,7 @@ type NDBCache map[string]ast.Object
 func (c NDBCache) AsValue() ast.Value {
 	out := ast.NewObject()
 	for bname, obj := range c {
-		out.Insert(ast.StringTerm(bname), ast.NewTerm(obj))
+		out.Insert(ast.InternedTerm(bname), ast.NewTerm(obj))
 	}
 	return out
 }
@@ -76,7 +76,7 @@ func (c NDBCache) MarshalJSON() ([]byte, error) {
 
 func (c *NDBCache) UnmarshalJSON(data []byte) error {
 	out := map[string]ast.Object{}
-	var incoming interface{}
+	var incoming any
 
 	// Note: We use util.Unmarshal instead of json.Unmarshal to get
 	// correct deserialization of number types.
@@ -120,7 +120,7 @@ func (err ErrOperand) Error() string {
 }
 
 // NewOperandErr returns a generic operand error.
-func NewOperandErr(pos int, f string, a ...interface{}) error {
+func NewOperandErr(pos int, f string, a ...any) error {
 	f = fmt.Sprintf("operand %v ", pos) + f
 	return ErrOperand(fmt.Sprintf(f, a...))
 }
@@ -209,14 +209,24 @@ func SetOperand(x ast.Value, pos int) (ast.Set, error) {
 	return s, nil
 }
 
-// StringOperand converts x to a string. If the cast fails, a descriptive error is
-// returned.
+// StringOperand returns x as [ast.String], or a descriptive error if the conversion fails.
 func StringOperand(x ast.Value, pos int) (ast.String, error) {
 	s, ok := x.(ast.String)
 	if !ok {
 		return ast.String(""), NewOperandTypeErr(pos, x, "string")
 	}
 	return s, nil
+}
+
+// StringOperandByteSlice returns x a []byte, assuming x is [ast.String], or a descriptive error
+// if that is not the case. The returned byte slice points directly at the underlying array backing
+// the string, and should not be modified.
+func StringOperandByteSlice(x ast.Value, pos int) ([]byte, error) {
+	s, err := StringOperand(x, pos)
+	if err != nil {
+		return nil, err
+	}
+	return util.StringToByteSlice(string(s)), nil
 }
 
 // ObjectOperand converts x to an object. If the cast fails, a descriptive
