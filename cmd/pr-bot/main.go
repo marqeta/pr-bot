@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/go-github/v50/github"
 	"github.com/jonboulle/clockwork"
-	"github.com/open-policy-agent/opa/sdk"
+	"github.com/open-policy-agent/opa/v1/sdk"
 	"github.com/rs/zerolog/log"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"

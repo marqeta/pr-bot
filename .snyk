@@ -1,0 +1,11 @@
+# Snyk (https://snyk.io) policy file
+version: v1.25.0
+ignore:
+  SNYK-GOLANG-GITHUBCOMGOJOSEGOJOSEV4-6419234:
+    - '*':
+        reason: Fixed via go.mod replace directive to v4.0.5
+        expires: 2027-01-20T00:00:00.000Z
+  SNYK-GOLANG-GITHUBCOMGOJOSEGOJOSEV4-8745975:
+    - '*':
+        reason: Fixed via go.mod replace directive to v4.0.5
+        expires: 2027-01-20T00:00:00.000Z

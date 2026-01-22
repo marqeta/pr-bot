@@ -8,7 +8,7 @@ import (
 	"github.com/marqeta/pr-bot/opa/client"
 	"github.com/marqeta/pr-bot/opa/input"
 	"github.com/marqeta/pr-bot/opa/rules"
-	"github.com/open-policy-agent/opa/sdk"
+	"github.com/open-policy-agent/opa/v1/sdk"
 )
 
 func TestSchema_Evaluate(t *testing.T) {

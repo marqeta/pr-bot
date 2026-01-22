@@ -4,7 +4,7 @@ linters:
      - revive
      - errcheck
      - gocyclo
-     - goerr113
+     - err113
      - goimports
      - gosec
      - gosimple
